@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="zh-Hans" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veer · AI Editor</title>
+<style>
+:root {
+  --bg:#f5f5f7; --bg-sb:#ebebeb; --bg-tb:rgba(245,245,247,0.88);
+  --bg-chat:#ffffff; --sf:#ffffff; --sf2:#f0f0f4;
+  --bd:rgba(0,0,0,0.09); --bd2:rgba(0,0,0,0.16);
+  --fg:#1c1c1e; --fg2:#48484a; --fgm:#8e8e93;
+  --acc:#1f9d55; --acc-fg:#ffffff; --acc-h:#1a8447;
+  --warn:#b45309; --warn-bg:#fef3c7; --warn-bd:#fde68a;
+  --err:#dc2626; --err-bg:#fee2e2; --err-bd:#fecaca;
+  --info:#0066cc; --info-bg:#dbeafe;
+  --add:rgba(34,197,94,0.13); --del:rgba(239,68,68,0.13);
+  --gl-bg:rgba(255,255,255,0.72); --gl-bd:rgba(255,255,255,0.45); --gl-hi:rgba(255,255,255,0.65);
+  --sh1:0 1px 3px rgba(0,0,0,0.09); --sh2:0 4px 16px rgba(0,0,0,0.12); --sh3:0 8px 32px rgba(0,0,0,0.15);
+  color-scheme:light;
+}
+[data-theme="dark"] {
+  --bg:#1c1c1e; --bg-sb:#252528; --bg-tb:rgba(28,28,30,0.88);
+  --bg-chat:#2c2c2e; --sf:#3a3a3c; --sf2:#2c2c2e;
+  --bd:rgba(255,255,255,0.1); --bd2:rgba(255,255,255,0.18);
+  --fg:#f5f5f7; --fg2:#aeaeb2; --fgm:#636366;
+  --acc:#30d158; --acc-fg:#001f0e; --acc-h:#3ce06a;
+  --warn:#f59e0b; --warn-bg:rgba(245,158,11,0.14); --warn-bd:rgba(245,158,11,0.3);
+  --err:#f87171; --err-bg:rgba(248,113,113,0.12); --err-bd:rgba(248,113,113,0.3);
+  --info:#60a5fa; --info-bg:rgba(96,165,250,0.12);
+  --add:rgba(48,209,88,0.13); --del:rgba(248,113,113,0.13);
+  --gl-bg:rgba(50,50,54,0.78); --gl-bd:rgba(255,255,255,0.12); --gl-hi:rgba(255,255,255,0.07);
+  --sh1:0 1px 3px rgba(0,0,0,0.3); --sh2:0 4px 16px rgba(0,0,0,0.4); --sh3:0 8px 32px rgba(0,0,0,0.5);
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;line-height:1.5;color:var(--fg);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font-family:inherit;font-size:inherit}
+select{font-family:inherit;font-size:inherit}
+textarea{font-family:inherit;font-size:inherit}
+input{font-family:inherit;font-size:inherit}
+
+/* ── Layout ── */
+#app{display:flex;flex-direction:column;height:100%;min-width:0}
+#toolbar{display:flex;align-items:center;height:44px;padding:0 12px;background:var(--bg-tb);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border-bottom:1px solid var(--bd);flex-shrink:0;z-index:100;gap:6px;user-select:none}
+@media(prefers-reduced-transparency:reduce){#toolbar{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--bg-sb)}}
+#main-body{display:flex;flex:1;min-height:0;overflow:hidden}
+#sidebar{width:240px;min-width:240px;display:flex;flex-direction:column;background:var(--bg-sb);border-right:1px solid var(--bd);flex-shrink:0;overflow:hidden;transition:width .2s ease,min-width .2s ease}
+#sidebar.collapsed{width:0;min-width:0;border-right:none}
+#content{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-chat);overflow:hidden;position:relative}
+#inspector{width:340px;min-width:340px;display:flex;flex-direction:column;background:var(--bg-sb);border-left:1px solid var(--bd);flex-shrink:0;overflow:hidden;transition:width .2s ease,min-width .2s ease}
+#inspector.collapsed{width:0;min-width:0;border-left:none}
+#inspector.overlay{position:absolute;right:0;top:0;bottom:0;z-index:50;box-shadow:var(--sh3);min-width:300px!important;width:300px!important}
+@media(prefers-reduced-motion:reduce){#sidebar,#inspector{transition:none}}
+
+/* ── Traffic Lights ── */
+.tls{display:flex;gap:8px;align-items:center;margin-right:4px;flex-shrink:0}
+.tl{width:12px;height:12px;border-radius:50%;border:none;padding:0;cursor:default;flex-shrink:0}
+.tl-r{background:#fe5f57}.tl-y{background:#febc2e}.tl-g{background:#28c840}
+
+/* ── Toolbar elements ── */
+.tb-btn{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;background:transparent;color:var(--fg2);border-radius:6px;cursor:pointer;transition:background .1s;flex-shrink:0}
+.tb-btn:hover{background:rgba(128,128,128,0.15);color:var(--fg)}
+.tb-btn:disabled{opacity:.35;cursor:default}
+.tb-btn:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.tb-sep{width:1px;height:16px;background:var(--bd2);flex-shrink:0}
+.tb-title-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;pointer-events:none;overflow:hidden}
+.tb-title{font-size:13px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.tb-subtitle{font-size:11px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.demo-sel{font-size:11px;color:var(--fg2);background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:3px 6px;cursor:pointer;flex-shrink:0;max-width:165px}
+.demo-sel:focus{outline:2px solid var(--acc)}
+
+/* ── Sidebar ── */
+.sb-top{padding:8px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.sb-new{display:flex;align-items:center;gap:6px;width:100%;padding:7px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;cursor:pointer;color:var(--fg2);font-size:13px;transition:background .1s}
+.sb-new:hover{background:var(--sf2);color:var(--fg)}
+.sb-new:focus-visible{outline:2px solid var(--acc)}
+.sb-search{margin:8px 8px 4px;display:block;width:calc(100% - 16px);padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;color:var(--fg);font-size:12px}
+.sb-search:focus{outline:none;border-color:var(--acc)}
+.sb-search::placeholder{color:var(--fgm)}
+.session-list{flex:1;overflow-y:auto;padding:4px 8px}
+.sess{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:10px;cursor:pointer;position:relative}
+.sess:hover{background:rgba(128,128,128,0.09)}
+.sess.active{background:rgba(31,157,85,0.1)}
+[data-theme="dark"] .sess.active{background:rgba(48,209,88,0.1)}
+.sess-dot{width:8px;height:8px;border-radius:50%;background:var(--acc);flex-shrink:0;margin-top:5px}
+.sess-dot.hidden{visibility:hidden}
+.sess-info{flex:1;min-width:0}
+.sess-name{font-size:13px;font-weight:500;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess-meta{font-size:11px;color:var(--fgm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-bottom{padding:8px;border-top:1px solid var(--bd);flex-shrink:0;display:flex;flex-direction:column;gap:6px}
+.sb-settings{display:flex;align-items:center;gap:6px;padding:6px 8px;background:transparent;border:none;color:var(--fg2);font-size:12px;border-radius:6px;cursor:pointer;width:100%;text-align:left}
+.sb-settings:hover{background:rgba(128,128,128,0.1);color:var(--fg)}
+.sb-settings:focus-visible{outline:2px solid var(--acc)}
+.sb-privacy{font-size:10px;color:var(--fgm);line-height:1.4;padding:0 8px 2px}
+
+/* ── Inspector ── */
+.insp-tabs{display:flex;padding:8px 8px 0;gap:2px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.insp-tab{flex:1;padding:5px 2px;font-size:12px;font-weight:500;text-align:center;background:transparent;border:none;color:var(--fgm);cursor:pointer;border-radius:6px 6px 0 0;border-bottom:2px solid transparent;white-space:nowrap;transition:color .1s}
+.insp-tab:hover{color:var(--fg)}
+.insp-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.insp-tab:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+.insp-body{flex:1;overflow-y:auto;padding:12px}
+
+/* ── Welcome ── */
+.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;position:relative;overflow:auto}
+.welcome.drag-over{background:rgba(31,157,85,0.06)}
+.welcome.drag-over::after{content:'';position:absolute;inset:8px;border:2px dashed var(--acc);border-radius:16px;pointer-events:none}
+.veer-logo{width:56px;height:56px;background:var(--acc);border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:20px;flex-shrink:0}
+.w-title{font-size:22px;font-weight:600;letter-spacing:-.02em;line-height:1.2;text-align:center;margin-bottom:8px}
+.w-desc{font-size:13px;color:var(--fg2);text-align:center;max-width:420px;line-height:1.6;margin-bottom:32px}
+.w-actions{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;max-width:320px}
+.btn-gl{display:flex;align-items:center;justify-content:center;gap:6px;padding:11px 20px;background:var(--gl-bg);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--gl-bd);box-shadow:inset 0 1px 0 var(--gl-hi),var(--sh1);border-radius:999px;color:var(--acc);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;width:100%}
+.btn-gl:hover{background:var(--acc);color:var(--acc-fg);border-color:transparent}
+.btn-gl:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media(prefers-reduced-transparency:reduce){.btn-gl{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--sf);border-color:var(--bd)}.btn-gl:hover{background:var(--acc);color:var(--acc-fg)}}
+.w-sec-row{display:flex;gap:8px;width:100%;justify-content:center;flex-wrap:wrap}
+.btn-ghost{display:flex;align-items:center;gap:5px;padding:7px 14px;background:transparent;border:1px solid var(--bd);border-radius:999px;color:var(--fg2);font-size:12px;font-weight:500;cursor:pointer;transition:all .1s;white-space:nowrap}
+.btn-ghost:hover{background:var(--sf2);border-color:var(--bd2);color:var(--fg)}
+.btn-ghost:focus-visible{outline:2px solid var(--acc)}
+.w-privacy{position:absolute;bottom:16px;font-size:11px;color:var(--fgm);text-align:center}
+
+/* ── Buttons ── */
+.btn-pri{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;background:var(--acc);color:var(--acc-fg);border:none;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;transition:background .1s;white-space:nowrap}
+.btn-pri:hover{background:var(--acc-h)}
+.btn-pri:disabled{opacity:.4;cursor:default}
+.btn-pri:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.btn-pri-gl{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;background:var(--gl-bg);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--gl-bd);box-shadow:inset 0 1px 0 var(--gl-hi),var(--sh1);border-radius:999px;color:var(--acc);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-pri-gl:hover{background:var(--acc);color:var(--acc-fg);border-color:transparent}
+.btn-pri-gl:disabled{opacity:.4;cursor:default}
+.btn-pri-gl:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media(prefers-reduced-transparency:reduce){.btn-pri-gl{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--sf);border-color:var(--bd)}.btn-pri-gl:hover{background:var(--acc);color:var(--acc-fg)}}
+.btn-neu{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:var(--sf2);color:var(--fg2);border:1px solid var(--bd);border-radius:999px;font-size:13px;font-weight:500;cursor:pointer;transition:background .1s}
+.btn-neu:hover{background:var(--sf);color:var(--fg)}
+.btn-neu:focus-visible{outline:2px solid var(--acc)}
+.btn-txt{background:none;border:none;color:var(--acc);font-size:12px;cursor:pointer;padding:3px 2px}
+.btn-txt:hover{text-decoration:underline}
+.btn-txt:focus-visible{outline:2px solid var(--acc)}
+.btn-sm{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:12px;color:var(--fg2);cursor:pointer}
+.btn-sm:hover{background:var(--sf);color:var(--fg)}
+.btn-sm:focus-visible{outline:2px solid var(--acc)}
+
+/* ── Outlet confirm ── */
+.outlet-screen{flex:1;overflow-y:auto;padding:24px;max-width:700px;margin:0 auto;width:100%}
+.sc-title{font-size:17px;font-weight:600;letter-spacing:-.01em;margin-bottom:4px}
+.sc-sub{font-size:13px;color:var(--fg2);margin-bottom:16px}
+.inline-warn{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:10px;margin-bottom:14px}
+.inline-warn svg{color:var(--warn);flex-shrink:0;margin-top:1px}
+.inline-warn-t{font-size:12px;color:var(--warn);line-height:1.5}
+.outlet-list{display:flex;flex-direction:column;gap:2px;margin-bottom:14px}
+.outlet-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px}
+.outlet-name{flex:1;font-size:13px;color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:999px;background:var(--sf2);color:var(--fgm);white-space:nowrap;flex-shrink:0}
+.tag.group{background:rgba(0,102,204,0.1);color:var(--info)}
+[data-theme="dark"] .tag.group{background:rgba(96,165,250,0.15)}
+.reg-sel{font:12px/1 -apple-system,sans-serif;color:var(--fg);background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:3px 6px;cursor:pointer;flex-shrink:0}
+.reg-sel:focus{outline:none;border-color:var(--acc)}
+.note-txt{font-size:11px;color:var(--fgm);margin-bottom:18px}
+.action-row{display:flex;gap:8px;align-items:center}
+
+/* ── Chat ── */
+.chat-area{flex:1;overflow-y:auto;padding:20px 24px 12px;display:flex;flex-direction:column;gap:14px;scroll-behavior:smooth}
+.chat-hints{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;gap:14px;padding:32px}
+.hint-label{font-size:13px;color:var(--fgm)}
+.chip-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:580px}
+.chip{padding:7px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:999px;font-size:12px;color:var(--fg2);cursor:pointer;transition:all .1s;white-space:nowrap}
+.chip:hover{background:var(--acc);color:var(--acc-fg);border-color:transparent}
+.chip:focus-visible{outline:2px solid var(--acc)}
+.msg-user{display:flex;justify-content:flex-end;max-width:760px;align-self:flex-end;width:100%}
+.msg-user-bub{background:var(--acc);color:var(--acc-fg);padding:10px 16px;border-radius:16px 16px 4px 16px;font-size:14px;line-height:1.5;max-width:68%}
+.msg-asst{max-width:760px;align-self:flex-start;width:100%}
+.steps-box{padding:12px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;display:flex;flex-direction:column;gap:8px}
+.step-row{display:flex;align-items:center;gap:8px;font-size:12px}
+.step-done{color:var(--acc)}.step-active{color:var(--info)}.step-pend{color:var(--fgm)}
+.spinner{width:14px;height:14px;border:2px solid var(--bd);border-top-color:var(--info);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.spinner{animation:none;border-top-color:var(--info)}}
+.steps-summary{font-size:12px;color:var(--fgm);display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;background:none;border:none;text-align:left;width:100%}
+.steps-summary:hover{color:var(--fg)}
+.steps-summary:focus-visible{outline:2px solid var(--acc)}
+.review-sum{font-size:14px;font-weight:500;margin-bottom:10px;color:var(--fg)}
+.change-item{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;margin-bottom:6px}
+.change-info{flex:1;min-width:0}
+.change-title{font-size:13px;font-weight:500;color:var(--fg);font-family:'SF Mono','Menlo','Monaco','Consolas',monospace}
+.change-meta{font-size:11px;color:var(--fgm);margin-top:3px}
+.change-replace{font-size:11px;color:var(--fgm);margin-top:4px}
+.change-replace code{background:var(--del);color:var(--err);padding:1px 4px;border-radius:3px;font-size:10px;font-family:monospace}
+.toggle{width:32px;height:18px;background:var(--fgm);border-radius:999px;position:relative;cursor:pointer;border:none;flex-shrink:0;transition:background .15s;margin-top:2px}
+.toggle.on{background:var(--acc)}
+.toggle::after{content:'';position:absolute;width:14px;height:14px;background:#fff;border-radius:50%;top:2px;left:2px;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+.toggle.on::after{left:16px}
+.toggle:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){.toggle,.toggle::after{transition:none}}
+.val-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:5px 10px;border-radius:999px;margin:8px 0}
+.val-badge.pass{background:rgba(31,157,85,0.1);color:var(--acc);border:1px solid rgba(31,157,85,0.2)}
+[data-theme="dark"] .val-badge.pass{background:rgba(48,209,88,0.12);border-color:rgba(48,209,88,0.25)}
+.val-badge.fail{background:var(--err-bg);color:var(--err);border:1px solid var(--err-bd)}
+.val-badge.warn{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bd)}
+.review-actions{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.written-row{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(31,157,85,0.08);border:1px solid rgba(31,157,85,0.2);border-radius:10px;margin-top:8px}
+[data-theme="dark"] .written-row{background:rgba(48,209,88,0.1);border-color:rgba(48,209,88,0.22)}
+.written-label{font-size:13px;font-weight:500;color:var(--acc);flex:1}
+.asst-text{font-size:14px;line-height:1.6;color:var(--fg)}
+.asst-text p{margin-bottom:8px}
+.error-block{padding:14px;background:var(--err-bg);border:1px solid var(--err-bd);border-radius:10px}
+.error-title{font-size:13px;font-weight:600;color:var(--err);margin-bottom:4px}
+.error-desc{font-size:12px;color:var(--fg2);line-height:1.6;margin-bottom:10px}
+.error-acts{display:flex;gap:8px;flex-wrap:wrap}
+.qr-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.qchip{padding:5px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:999px;font-size:12px;color:var(--acc);cursor:pointer;transition:all .1s}
+.qchip:hover{background:var(--acc);color:var(--acc-fg);border-color:transparent}
+.qchip:focus-visible{outline:2px solid var(--acc)}
+.stale-notice{padding:8px 12px;background:var(--warn-bg);border:1px solid var(--warn-bd);border-radius:8px;font-size:12px;color:var(--warn);margin-top:6px}
+
+/* ── Input bar ── */
+#ibar{padding:10px 16px;border-top:1px solid var(--bd);flex-shrink:0;position:relative}
+.input-outer{background:var(--gl-bg);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--gl-bd);box-shadow:inset 0 1px 0 var(--gl-hi),var(--sh1);border-radius:16px;overflow:hidden}
+@media(prefers-reduced-transparency:reduce){.input-outer{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--sf);border-color:var(--bd)}}
+#msg-input{width:100%;padding:10px 14px 0;background:transparent;border:none;font:14px/1.5 -apple-system,sans-serif;color:var(--fg);resize:none;min-height:38px;max-height:160px;overflow-y:auto;outline:none;display:block}
+#msg-input::placeholder{color:var(--fgm)}
+.ibar-bottom{display:flex;align-items:center;justify-content:space-between;padding:5px 10px 8px;gap:8px}
+.ibar-hint{font-size:10px;color:var(--fgm)}
+.mode-btn{display:flex;align-items:center;gap:5px;padding:4px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:999px;font-size:11px;color:var(--fg2);cursor:pointer;flex-shrink:0}
+.mode-btn:hover{color:var(--fg)}
+.mode-btn:focus-visible{outline:2px solid var(--acc)}
+.send-btn{width:32px;height:32px;background:var(--acc);color:var(--acc-fg);border:none;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background .1s}
+.send-btn:hover{background:var(--acc-h)}
+.send-btn:disabled{opacity:.35;cursor:default}
+.send-btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.stop-btn{width:32px;height:32px;background:var(--err);color:#fff;border:none;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background .1s}
+.stop-btn:hover{background:#b91c1c}
+.stop-btn:focus-visible{outline:2px solid var(--err);outline-offset:2px}
+#ac-popup{position:absolute;bottom:calc(100% + 2px);left:16px;right:16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;box-shadow:var(--sh2);overflow:hidden;z-index:200;display:none}
+#ac-popup.show{display:block}
+.ac-header{font-size:10px;font-weight:600;color:var(--fgm);padding:6px 12px 4px;text-transform:uppercase;letter-spacing:.06em}
+.ac-item{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;font-size:13px}
+.ac-item:hover,.ac-item.sel{background:rgba(31,157,85,0.08)}
+.ac-name{flex:1;font-weight:500}
+.ac-meta{font-size:11px;color:var(--fgm)}
+.ac-tag{font-size:10px;padding:1px 6px;border-radius:999px;background:var(--sf2);color:var(--fgm)}
+
+/* ── Inspector content ── */
+.diff-toggles{display:flex;gap:4px;margin-bottom:10px}
+.dtg-btn{padding:4px 10px;font-size:11px;font-weight:500;background:transparent;border:1px solid var(--bd);border-radius:6px;cursor:pointer;color:var(--fgm);transition:all .1s}
+.dtg-btn.active{background:var(--acc);color:var(--acc-fg);border-color:transparent}
+.dtg-btn:focus-visible{outline:2px solid var(--acc)}
+.diff-view{font:11px/1.6 'SF Mono','Menlo','Monaco','Consolas',monospace;border:1px solid var(--bd);border-radius:6px;overflow-x:auto;background:var(--sf)}
+.dl{display:flex;align-items:flex-start;padding:0 6px;white-space:pre}
+.dl.add{background:var(--add)}.dl.del{background:var(--del)}
+.dl-num{width:28px;color:var(--fgm);user-select:none;flex-shrink:0;text-align:right;padding-right:8px}
+.dl-pfx{width:14px;flex-shrink:0}
+.dl.add .dl-pfx{color:var(--acc)}.dl.del .dl-pfx{color:var(--err)}
+.dl-txt{flex:1;color:var(--fg);overflow:visible}
+.diff-fold{padding:3px 6px;color:var(--fgm);font-size:10px;background:var(--sf2);cursor:pointer;display:flex;align-items:center;gap:4px;border:none;width:100%;text-align:left}
+.diff-fold:hover{color:var(--fg)}
+.rules-filter{width:100%;padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;color:var(--fg);font-size:12px;margin-bottom:8px}
+.rules-filter:focus{outline:none;border-color:var(--acc)}
+.rules-tbl{width:100%;border-collapse:collapse;font-size:11px}
+.rules-tbl th{text-align:left;padding:4px 6px;color:var(--fgm);font-weight:500;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg-sb)}
+.rules-tbl td{padding:5px 6px;border-bottom:1px solid var(--bd);color:var(--fg2);vertical-align:top;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rules-tbl tr:hover td{background:rgba(128,128,128,0.05)}
+.badge-new{font-size:9px;padding:1px 5px;border-radius:999px;background:rgba(31,157,85,0.15);color:var(--acc);font-weight:600}
+[data-theme="dark"] .badge-new{background:rgba(48,209,88,0.15)}
+.mono{font-family:'SF Mono','Menlo',monospace;font-size:10px}
+.test-row{display:flex;gap:6px;margin-bottom:12px}
+.test-in{flex:1;padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;color:var(--fg);font-size:12px;font-family:'SF Mono','Menlo',monospace}
+.test-in:focus{outline:none;border-color:var(--acc)}
+.btn-test{padding:6px 12px;background:var(--acc);color:var(--acc-fg);border:none;border-radius:10px;font-size:12px;font-weight:500;cursor:pointer}
+.btn-test:hover{background:var(--acc-h)}
+.btn-test:focus-visible{outline:2px solid var(--acc)}
+.test-res{padding:10px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;font-size:12px;line-height:1.7}
+.tr-line{color:var(--fg2)}.tr-match{color:var(--acc);font-weight:500}.tr-skip{color:var(--warn)}
+.outlet-tab-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--bd)}
+.otr-name{flex:1;font-size:12px;font-weight:500;color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.otr-type{font-size:10px;color:var(--fgm);padding:2px 6px;background:var(--sf2);border-radius:999px;flex-shrink:0}
+.otr-reg{font-size:11px;color:var(--info);flex-shrink:0}
+
+/* ── Sheet ── */
+.sheet-ov{position:fixed;inset:0;background:rgba(0,0,0,0.35);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:500;display:none;align-items:center;justify-content:center}
+.sheet-ov.show{display:flex}
+@media(prefers-reduced-transparency:reduce){.sheet-ov{backdrop-filter:none;-webkit-backdrop-filter:none}}
+.sheet{background:var(--sf);border-radius:16px;box-shadow:var(--sh3);width:480px;max-width:calc(100vw - 48px);max-height:calc(100vh - 80px);overflow-y:auto;border:1px solid var(--bd)}
+.sheet.wide{width:560px}
+.sheet-hd{display:flex;align-items:center;padding:16px 20px 12px;border-bottom:1px solid var(--bd)}
+.sheet-ti{font-size:15px;font-weight:600;letter-spacing:-.01em;flex:1}
+.sheet-x{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:var(--sf2);border:none;border-radius:50%;cursor:pointer;color:var(--fgm)}
+.sheet-x:hover{color:var(--fg);background:var(--bd2)}
+.sheet-x:focus-visible{outline:2px solid var(--acc)}
+.sheet-bd{padding:16px 20px 20px}
+.stabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--bd)}
+.stab{padding:8px 16px;font-size:13px;font-weight:500;background:transparent;border:none;color:var(--fgm);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.stab:hover{color:var(--fg)}
+.stab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.stab:focus-visible{outline:2px solid var(--acc)}
+.fg{margin-bottom:14px}
+.fl{font-size:12px;font-weight:500;color:var(--fg2);margin-bottom:5px;display:block}
+.fi{width:100%;padding:7px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;color:var(--fg);font-size:13px}
+.fi:focus{outline:none;border-color:var(--acc)}
+.fsel{width:100%;padding:7px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;color:var(--fg);font-size:13px;cursor:pointer}
+.fsel:focus{outline:none;border-color:var(--acc)}
+.key-wrap{position:relative}
+.key-st{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--acc)}
+.frow{display:flex;gap:8px;align-items:flex-end}
+.frow .fg{flex:1;margin-bottom:0}
+.btn-conn{padding:7px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;font-size:12px;color:var(--fg2);cursor:pointer;white-space:nowrap}
+.btn-conn:hover{background:var(--sf);color:var(--fg)}
+.btn-conn:focus-visible{outline:2px solid var(--acc)}
+.conn-ok{font-size:11px;color:var(--acc);margin-top:6px}
+.conn-fail{font-size:11px;color:var(--err);margin-top:6px}
+.ck-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ck-lbl{font-size:13px;color:var(--fg)}
+input[type=checkbox]{accent-color:var(--acc);width:14px;height:14px;cursor:pointer}
+.priv-section h4{font-size:13px;font-weight:600;margin-bottom:6px}
+.priv-section p{font-size:12px;color:var(--fg2);line-height:1.6;margin-bottom:10px}
+.priv-code{background:var(--sf2);padding:8px 10px;border-radius:6px;font-family:'SF Mono','Menlo',monospace;font-size:11px;color:var(--fg2);margin-bottom:10px;line-height:1.7}
+.priv-unsent{font-size:11px;color:var(--fgm);padding:6px 10px;background:var(--warn-bg);border-radius:6px;border:1px solid var(--warn-bd)}
+.export-stats{font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.eplus{color:var(--acc);font-weight:600}.eminus{color:var(--err);font-weight:600}
+.export-note{font-size:11px;color:var(--fgm);margin-top:6px}
+.export-ck-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--bd);border-bottom:1px solid var(--bd);margin:12px 0}
+.sheet-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+/* ── Subscription sheet ── */
+.sub-states .sub-idle,.sub-states .sub-loading,.sub-states .sub-error{display:none}
+.sub-states.idle .sub-idle,.sub-states.loading .sub-loading,.sub-states.error .sub-error{display:block}
+.loading-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--fg2);padding:8px 0}
+.loading-row .spinner{width:16px;height:16px;border-width:2px}
+
+/* ── Toast ── */
+#toast{position:fixed;bottom:76px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--gl-bg);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid var(--gl-bd);box-shadow:var(--sh2),inset 0 1px 0 var(--gl-hi);border-radius:999px;padding:9px 16px;font-size:13px;font-weight:500;color:var(--fg);z-index:1000;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media(prefers-reduced-motion:reduce){#toast{transition:none}}
+@media(prefers-reduced-transparency:reduce){#toast{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--sf)}}
+
+/* ── Misc ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(128,128,128,0.28);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:rgba(128,128,128,0.45)}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Toolbar -->
+  <header id="toolbar" data-od-id="toolbar">
+    <div class="tls" aria-hidden="true">
+      <div class="tl tl-r"></div>
+      <div class="tl tl-y"></div>
+      <div class="tl tl-g"></div>
+    </div>
+    <button class="tb-btn" id="btn-sb" aria-label="切换侧栏" title="切换侧栏">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="13" height="12" rx="2"/><line x1="5.5" y1="2" x2="5.5" y2="14"/></svg>
+    </button>
+    <div class="tb-sep"></div>
+    <div class="tb-title-area">
+      <div class="tb-title" id="tb-title">Veer · AI Editor</div>
+      <div class="tb-subtitle" id="tb-sub"></div>
+    </div>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-undo" aria-label="撤销" title="撤销 ⌘Z" disabled>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h5a4 4 0 0 1 0 8H4"/><polyline points="2,2 2,5 5,5"/></svg>
+    </button>
+    <button class="tb-btn" id="btn-redo" aria-label="重做" title="重做 ⌘⇧Z" disabled>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H7a4 4 0 0 0 0 8h3"/><polyline points="12,2 12,5 9,5"/></svg>
+    </button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-export" aria-label="导出配置" title="导出配置" disabled>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10v2h10v-2"/><polyline points="7,2 7,8"/><polyline points="4,6 7,9 10,6"/></svg>
+    </button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-insp" aria-label="切换检查器" title="切换检查器">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="13" height="12" rx="2"/><line x1="10.5" y1="2" x2="10.5" y2="14"/></svg>
+    </button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-dark" aria-label="切换外观" title="切换深色/浅色">
+      <svg id="icon-dark" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 8.5A6 6 0 1 1 5.5 2a4.5 4.5 0 0 0 6.5 6.5z"/></svg>
+    </button>
+    <div class="tb-sep"></div>
+    <select class="demo-sel" id="demo-sel" aria-label="演示状态">
+      <option value="welcome">开始页</option>
+      <option value="outlet-confirm">出口确认</option>
+      <option value="chat-empty">对话 · 空</option>
+      <option value="chat-generating">对话 · 生成中</option>
+      <option value="chat-review">对话 · 待审阅</option>
+      <option value="chat-written">对话 · 已写入</option>
+      <option value="chat-ai-payload">查看 AI 发送内容</option>
+      <option value="chat-clarify">对话 · 澄清</option>
+      <option value="chat-outofscope">对话 · 超出范围</option>
+      <option value="chat-error-401">对话 · 错误 401</option>
+      <option value="chat-error-validate">对话 · 校验失败</option>
+    </select>
+  </header>
+
+  <!-- Body -->
+  <div id="main-body">
+    <!-- Sidebar -->
+    <nav id="sidebar" aria-label="会话列表" data-od-id="sidebar">
+      <div class="sb-top">
+        <button class="sb-new" id="btn-new-import" aria-label="新建导入" title="新建导入">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><line x1="6.5" y1="1" x2="6.5" y2="12"/><line x1="1" y1="6.5" x2="12" y2="6.5"/></svg>
+          新建导入
+        </button>
+      </div>
+      <input type="search" class="sb-search" id="sb-search" placeholder="搜索会话" aria-label="搜索会话">
+      <div class="session-list" role="list" id="session-list"></div>
+      <div class="sb-bottom">
+        <button class="sb-settings" id="btn-settings" aria-label="打开设置" title="设置">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="1.8"/><path d="M6.5 1v1M6.5 11v1M1 6.5h1M11 6.5h1M2.4 2.4l.7.7M9.9 9.9l.7.7M9.9 3.1l-.7.7M3.1 9.9l-.7.7"/></svg>
+          设置
+        </button>
+        <p class="sb-privacy">配置在本机解析 · AI 只收到匿名出口</p>
+      </div>
+    </nav>
+
+    <!-- Content -->
+    <main id="content" data-od-id="content-area">
+      <div id="view" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden"></div>
+      <div id="ibar" style="display:none">
+        <div id="ac-popup">
+          <div class="ac-header" id="ac-header">出口</div>
+          <div id="ac-list"></div>
+        </div>
+        <div class="input-outer">
+          <textarea id="msg-input" rows="1" placeholder='描述分流，例如"Netflix 走日本，ChatGPT 走美国"' aria-label="发送消息"></textarea>
+          <div class="ibar-bottom">
+            <button class="mode-btn" id="btn-mode" title="切换模式" aria-label="切换 AI / 本地解析模式">
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="5.5" cy="5.5" r="4"/><path d="M5.5 3v2.5l1.5 1.5"/></svg>
+              <span id="mode-label">AI · deepseek-chat</span>
+            </button>
+            <div style="flex:1"></div>
+            <div class="ibar-hint">请勿粘贴密钥或订阅链接</div>
+            <button class="send-btn" id="btn-send" aria-label="发送" title="发送 ⌘↩">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="11" x2="7" y2="3"/><polyline points="3.5,6.5 7,3 10.5,6.5"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Inspector -->
+    <aside id="inspector" aria-label="检查器" data-od-id="inspector">
+      <div class="insp-tabs" role="tablist">
+        <button class="insp-tab active" role="tab" aria-selected="true" data-tab="changes" id="itab-changes">变更</button>
+        <button class="insp-tab" role="tab" aria-selected="false" data-tab="rules" id="itab-rules">规则</button>
+        <button class="insp-tab" role="tab" aria-selected="false" data-tab="test" id="itab-test">测试</button>
+        <button class="insp-tab" role="tab" aria-selected="false" data-tab="outlets" id="itab-outlets">出口</button>
+      </div>
+      <div class="insp-body" id="insp-body"></div>
+    </aside>
+  </div>
+</div>
+
+<!-- Sheet overlay -->
+<div class="sheet-ov" id="sheet-ov" role="dialog" aria-modal="true" aria-label="面板">
+  <div id="sheet-inner"></div>
+</div>
+
+<!-- Toast -->
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+'use strict';
+
+// ── State ─────────────────────────────────────────────────────────
+var S = {
+  view: 'welcome',
+  sbOpen: true,
+  inspOpen: true,
+  inspTab: 'changes',
+  dark: window.matchMedia('(prefers-color-scheme: dark)').matches,
+  sheet: null,
+  settingsTab: 'ai',
+  chatState: 'empty', // empty|generating|review|written|clarify|outofscope|error-401|error-validate
+  accepts: [true, true],
+  stepsExpanded: false,
+  genTimer: null,
+  written: false,
+  undoStack: [],
+  redoStack: [],
+  aiMode: true,
+  connectResult: null, // null|ok|fail
+  subState: 'idle',    // idle|loading|error
+  testDomain: 'www.netflix.com',
+  testResult: 'netflix',
+  inspDataAvail: false,
+};
+
+// ── DOM refs ───────────────────────────────────────────────────────
+var $ = function(id){ return document.getElementById(id); };
+
+var els = {
+  app:      document.documentElement,
+  tbTitle:  $('tb-title'),
+  tbSub:    $('tb-sub'),
+  btnSb:    $('btn-sb'),
+  btnUndo:  $('btn-undo'),
+  btnRedo:  $('btn-redo'),
+  btnExport:$('btn-export'),
+  btnInsp:  $('btn-insp'),
+  btnDark:  $('btn-dark'),
+  demoSel:  $('demo-sel'),
+  sidebar:  $('sidebar'),
+  sessList: $('session-list'),
+  view:     $('view'),
+  ibar:     $('ibar'),
+  inspector:$('inspector'),
+  inspBody: $('insp-body'),
+  sheetOv:  $('sheet-ov'),
+  sheetIn:  $('sheet-inner'),
+  toast:    $('toast'),
+  msgInput: $('msg-input'),
+  btnSend:  $('btn-send'),
+  acPopup:  $('ac-popup'),
+  acHeader: $('ac-header'),
+  acList:   $('ac-list'),
+  modeBtn:  $('btn-mode'),
+  modeLabel:$('mode-label'),
+  iconDark: $('icon-dark'),
+  btnNew:   $('btn-new-import'),
+  btnSettings: $('btn-settings'),
+};
+
+// ── Data ───────────────────────────────────────────────────────────
+var SESSIONS = [
+  {id:'s1', name:'我的配置.yaml', meta:'本地文件 · 刚刚', dot:true, active:true},
+  {id:'s2', name:'sub.example.net', meta:'订阅 · 昨天', dot:false, active:false},
+  {id:'s3', name:'work-office.yaml', meta:'本地文件 · 3 天前', dot:false, active:false},
+];
+
+var OUTLETS = [
+  {name:'🇯🇵 日本出口', type:'策略组', typeClass:'group', region:'日本'},
+  {name:'🇺🇸 美国出口', type:'策略组', typeClass:'group', region:'美国'},
+  {name:'🇭🇰 香港出口', type:'策略组', typeClass:'group', region:'香港'},
+  {name:'自动选择', type:'策略组', typeClass:'group', region:'未指定'},
+  {name:'Premium-SG-Netflix-Unlock-IEPL-02-高速专线', type:'节点', typeClass:'', region:'新加坡'},
+  {name:'Backup Relay', type:'节点', typeClass:'', region:'未指定'},
+  {name:'DIRECT', type:'内置', typeClass:'', region:'—'},
+  {name:'REJECT', type:'内置', typeClass:'', region:'—'},
+];
+
+var RULES = [
+  {n:1, type:'RULE-SET', match:'netflix', out:'日本出口', isNew:true, url:'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/netflix.mrs'},
+  {n:2, type:'RULE-SET', match:'openai', out:'美国出口', isNew:true, url:'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/openai.mrs'},
+  {n:3, type:'DOMAIN-SUFFIX', match:'example.com', out:'DIRECT', isNew:false},
+  {n:4, type:'DOMAIN-KEYWORD', match:'google', out:'美国出口', isNew:false},
+  {n:5, type:'DOMAIN-SUFFIX', match:'github.com', out:'自动选择', isNew:false},
+  {n:6, type:'GEOSITE', match:'cn', out:'DIRECT', isNew:false},
+  {n:7, type:'GEOIP', match:'CN', out:'DIRECT', isNew:false},
+  {n:8, type:'IP-CIDR', match:'192.168.0.0/16', out:'DIRECT', isNew:false},
+  {n:9, type:'MATCH', match:'—', out:'自动选择', isNew:false},
+];
+
+// ── SVG helpers ────────────────────────────────────────────────────
+function svgCheck(color){
+  // CSS variables require style attr, not SVG presentation attr
+  var s = color || 'currentColor';
+  return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="stroke:'+s+';flex-shrink:0;display:inline-block;vertical-align:middle" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,7 5.5,10.5 12,4"/></svg>';
+}
+function svgWarn(){
+  return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2L13 12H1z"/><line x1="7" y1="6" x2="7" y2="9"/><circle cx="7" cy="11" r=".5" fill="currentColor"/></svg>';
+}
+function svgInfo(){
+  return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><line x1="7" y1="6" x2="7" y2="10"/><circle cx="7" cy="4.5" r=".5" fill="currentColor"/></svg>';
+}
+function svgErr(){
+  return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"/><line x1="9" y1="5" x2="5" y2="9"/><line x1="5" y1="5" x2="9" y2="9"/></svg>';
+}
+function svgChevron(dir){
+  var d = dir==='up' ? 'M3,9 L7,5 11,9' : 'M3,5 L7,9 11,5';
+  return '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="'+d+'"/></svg>';
+}
+
+// ── Apply theme ────────────────────────────────────────────────────
+function applyTheme(){
+  document.documentElement.setAttribute('data-theme', S.dark ? 'dark' : 'light');
+  els.iconDark.innerHTML = S.dark
+    ? '<circle cx="7" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="7" y1="1" x2="7" y2="2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="11.5" x2="7" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="1" y1="7" x2="2.5" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="11.5" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>'
+    : '<path d="M12 8.5A6 6 0 1 1 5.5 2a4.5 4.5 0 0 0 6.5 6.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>';
+}
+
+// ── Responsive: inspector overlay ─────────────────────────────────
+function checkOverlay(){
+  var w = window.innerWidth;
+  var insp = els.inspector;
+  if(w < 1100 && S.inspOpen){
+    insp.classList.add('overlay');
+  } else {
+    insp.classList.remove('overlay');
+  }
+}
+
+// ── Render sessions ────────────────────────────────────────────────
+function renderSessions(){
+  els.sessList.innerHTML = SESSIONS.map(function(s){
+    return '<div class="sess'+(s.active?' active':'')+'" role="listitem" data-sid="'+s.id+'" tabindex="0" aria-label="'+s.name+'">'
+      +'<div class="sess-dot'+(s.dot?'':' hidden')+'"></div>'
+      +'<div class="sess-info"><div class="sess-name">'+s.name+'</div><div class="sess-meta">'+s.meta+'</div></div>'
+      +'</div>';
+  }).join('');
+}
+
+// ── Toolbar state ──────────────────────────────────────────────────
+function updateToolbar(){
+  var inChat = S.view.indexOf('chat') === 0;
+  var inOutlet = S.view === 'outlet-confirm';
+  var hasData = inChat || inOutlet;
+
+  els.tbTitle.textContent = inChat ? '我的配置.yaml' : 'Veer · AI Editor';
+  els.tbSub.textContent = (S.written && inChat) ? '草稿 · 2 项未导出修改' : (inChat ? '' : '');
+
+  els.btnUndo.disabled = S.undoStack.length === 0;
+  els.btnRedo.disabled = S.redoStack.length === 0;
+  els.btnExport.disabled = !S.written;
+
+  els.sidebar.classList.toggle('collapsed', !S.sbOpen);
+  var inInspView = S.view === 'chat' || S.view === 'outlet-confirm';
+  if(!inInspView){
+    els.inspector.classList.add('collapsed');
+  } else {
+    els.inspector.classList.toggle('collapsed', !S.inspOpen);
+  }
+  checkOverlay();
+}
+
+// ── Main view renderer ─────────────────────────────────────────────
+function renderView(){
+  var v = S.view;
+  var showIbar = v.indexOf('chat') === 0;
+  els.ibar.style.display = showIbar ? '' : 'none';
+  // update send/stop button
+  if(showIbar) updateSendBtn();
+
+  // Inspector visibility
+  var showInsp = v.indexOf('chat') === 0 || v === 'outlet-confirm';
+  if(!showInsp){
+    els.inspector.classList.add('collapsed');
+  } else {
+    els.inspector.classList.toggle('collapsed', !S.inspOpen);
+  }
+
+  updateToolbar();
+
+  if(v === 'welcome') renderWelcome();
+  else if(v === 'outlet-confirm') renderOutletConfirm();
+  else renderChat();
+
+  if(showInsp) renderInspector();
+
+  els.demoSel.value = v;
+  S.inspDataAvail = showInsp;
+}
+
+// ── Welcome ────────────────────────────────────────────────────────
+function renderWelcome(){
+  els.view.innerHTML =
+    '<div class="welcome" id="welcome-drop">'
+    +'<div class="veer-logo" aria-hidden="true">'
+    +'<svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8l8 12 8-12"/><path d="M10 8l4 6 4-6"/></svg>'
+    +'</div>'
+    +'<h1 class="w-title">用一句话修改分流规则</h1>'
+    +'<p class="w-desc">Veer AI Editor 让你用一句话修改 Mihomo 分流规则，每一处改动先给你看清楚，再由你决定写不写。</p>'
+    +'<div class="w-actions">'
+    +'<button class="btn-gl" id="btn-import-file" data-action="import-file">'+svgCheck('var(--acc)')+'&nbsp;导入配置文件</button>'
+    +'<div class="w-sec-row">'
+    +'<button class="btn-ghost" data-action="paste-yaml">粘贴 YAML</button>'
+    +'<button class="btn-ghost" data-action="sub-link">订阅链接</button>'
+    +'<button class="btn-ghost" data-action="try-example" id="btn-try">试用示例配置</button>'
+    +'</div>'
+    +'</div>'
+    +'<p class="w-privacy">配置在本机解析 · AI 只收到匿名出口与指令 · 不测速 · 不切换节点</p>'
+    +'</div>';
+
+  var drop = document.getElementById('welcome-drop');
+  if(drop){
+    drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('drag-over'); });
+    drop.addEventListener('dragleave', function(){ drop.classList.remove('drag-over'); });
+    drop.addEventListener('drop', function(e){ e.preventDefault(); drop.classList.remove('drag-over'); goTo('outlet-confirm'); });
+  }
+}
+
+// ── Outlet Confirm ─────────────────────────────────────────────────
+function renderOutletConfirm(){
+  var rows = OUTLETS.map(function(o){
+    var regions = ['日本','美国','香港','新加坡','台湾','未指定'];
+    var opts = regions.map(function(r){ return '<option'+(r===o.region?' selected':'')+'>'+r+'</option>'; }).join('');
+    return '<div class="outlet-row">'
+      +'<div class="outlet-name">'+o.name+'</div>'
+      +'<span class="tag'+( o.typeClass?' '+o.typeClass:'')+'">'+o.type+'</span>'
+      +(o.region !== '—' ? '<select class="reg-sel" aria-label="'+o.name+'地区">'+opts+'</select>' : '<span style="font-size:11px;color:var(--fgm)">—</span>')
+      +'</div>';
+  }).join('');
+
+  els.view.innerHTML =
+    '<div class="outlet-screen">'
+    +'<h2 class="sc-title">识别到 7 个出口 · 2 个未指定地区</h2>'
+    +'<p class="sc-sub">确认每个出口对应的地区，以便 AI 正确理解你的指令。</p>'
+    +'<div class="inline-warn">'+svgWarn()+'<div class="inline-warn-t">配置没有 MATCH 兜底规则，部分流量可能无法匹配任何规则。</div></div>'
+    +'<div class="outlet-list">'+rows+'</div>'
+    +'<p class="note-txt">地区为推断或声明，未实测。</p>'
+    +'<div class="action-row">'
+    +'<button class="btn-pri-gl" data-action="start-edit">开始编辑</button>'
+    +'<button class="btn-neu" data-action="skip-outlet">稍后</button>'
+    +'</div>'
+    +'</div>';
+}
+
+// ── Chat ───────────────────────────────────────────────────────────
+function renderChat(){
+  var cs = S.chatState;
+  var html = '';
+
+  // User message for states that have one
+  var userMsg = '';
+  if(cs==='generating'||cs==='review'||cs==='written'||cs==='error-401'||cs==='error-validate'){
+    userMsg = '<div class="msg-user"><div class="msg-user-bub">Netflix 走日本，ChatGPT 走美国</div></div>';
+  }
+  if(cs==='clarify'){
+    userMsg = '<div class="msg-user"><div class="msg-user-bub">YouTube 走代理</div></div>';
+  }
+  if(cs==='outofscope'){
+    userMsg = '<div class="msg-user"><div class="msg-user-bub">节点太卡了换一个</div></div>';
+  }
+
+  if(cs==='empty'){
+    html = '<div class="chat-hints">'
+      +'<p class="hint-label">选择一个示例，或直接描述你的需求</p>'
+      +'<div class="chip-row">'
+      +'<button class="chip" data-action="send-chip" data-msg="Netflix 走日本，ChatGPT 走美国">Netflix 走日本，ChatGPT 走美国</button>'
+      +'<button class="chip" data-action="send-chip" data-msg="YouTube 走香港">YouTube 走香港</button>'
+      +'<button class="chip" data-action="send-chip" data-msg="example.com 直连">example.com 直连</button>'
+      +'<button class="chip" data-action="send-chip" data-msg="屏蔽广告">屏蔽广告</button>'
+      +'</div>'
+      +'</div>';
+  } else if(cs==='generating'){
+    html = userMsg
+      +'<div class="msg-asst">'
+      +'<div class="steps-box" id="steps-box">'
+      +'<div class="step-row step-done">'+svgCheck('var(--acc)')+'&nbsp;理解指令</div>'
+      +'<div class="step-row step-done">'+svgCheck('var(--acc)')+'&nbsp;检查出口</div>'
+      +'<div class="step-row step-active"><div class="spinner"></div>&nbsp;生成修改</div>'
+      +'<div class="step-row step-pend"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="5" opacity=".4"/></svg>&nbsp;校验</div>'
+      +'</div>'
+      +'</div>';
+  } else if(cs==='review'||cs==='written'){
+    var a1 = S.accepts[0], a2 = S.accepts[1];
+    var count = (a1?1:0)+(a2?1:0);
+    var stepsHtml = S.stepsExpanded
+      ? '<div class="steps-box" style="margin-bottom:10px">'
+        +'<div class="step-row step-done">'+svgCheck('var(--acc)')+'&nbsp;理解指令</div>'
+        +'<div class="step-row step-done">'+svgCheck('var(--acc)')+'&nbsp;检查出口</div>'
+        +'<div class="step-row step-done">'+svgCheck('var(--acc)')+'&nbsp;生成修改</div>'
+        +'<div class="step-row step-done">'+svgCheck('var(--acc)')+'&nbsp;校验</div>'
+        +'</div>'
+      : '<button class="steps-summary" id="btn-steps-toggle" data-action="toggle-steps">'
+        +svgCheck('var(--acc)')+'处理完成 · 4 步 · 2.4 秒&nbsp;'+svgChevron('down')
+        +'</button>';
+
+    var change1 = '<div class="change-item">'
+      +'<div class="change-info">'
+      +'<div class="change-title">Netflix → 日本出口（日本 · 推断）</div>'
+      +'<div class="change-meta">规则集 MetaCubeX geosite/netflix · 地址已验证</div>'
+      +'</div>'
+      +'<button class="toggle'+(a1?' on':'')+'" id="tog1" data-action="toggle-accept" data-idx="0" role="switch" aria-checked="'+(a1?'true':'false')+'" aria-label="接受此修改" title="接受 / 拒绝此修改"></button>'
+      +'</div>';
+
+    var change2 = '<div class="change-item">'
+      +'<div class="change-info">'
+      +'<div class="change-title">ChatGPT → 美国出口（美国 · 推断）</div>'
+      +'<div class="change-meta">规则集 MetaCubeX geosite/openai · 地址已验证</div>'
+      +'<div class="change-replace">替换：<code>DOMAIN-SUFFIX,openai.com,DIRECT</code></div>'
+      +'</div>'
+      +'<button class="toggle'+(a2?' on':'')+'" id="tog2" data-action="toggle-accept" data-idx="1" role="switch" aria-checked="'+(a2?'true':'false')+'" aria-label="接受此修改" title="接受 / 拒绝此修改"></button>'
+      +'</div>';
+
+    var writtenRow = cs==='written'
+      ? '<div class="written-row"><span class="written-label">'+svgCheck('var(--acc)')+'&nbsp;已写入草稿</span>'
+        +'<button class="btn-sm" data-action="undo-write">撤销</button></div>'
+      : '';
+
+    var actRow = cs==='written' ? writtenRow
+      : (count===0
+        ? '<div class="review-actions"><button class="btn-pri" disabled>写入草稿</button><button class="btn-neu" data-action="discard">放弃</button><button class="btn-txt" data-action="show-diff">查看差异</button><button class="btn-txt" data-action="ai-payload">查看发送给 AI 的内容</button></div>'
+        : '<div class="review-actions"><button class="btn-pri-gl" data-action="write-draft">写入草稿 ⌘⇧↩</button><button class="btn-neu" data-action="discard">放弃</button><button class="btn-txt" data-action="show-diff">查看差异</button><button class="btn-txt" data-action="ai-payload">查看发送给 AI 的内容</button></div>'
+      );
+
+    html = userMsg
+      +'<div class="msg-asst">'
+      +stepsHtml
+      +'<div class="review-sum">准备了 '+count+' 项分流修改，等待你确认。</div>'
+      +change1+change2
+      +'<div class="val-badge pass">'+svgCheck('var(--acc)')+'&nbsp;已通过 Mihomo 配置测试 · 网络可达性未验证</div>'
+      +actRow
+      +'</div>';
+  } else if(cs==='ai-payload'){
+    html = userMsg
+      +'<div class="msg-asst">'
+      +'<button class="steps-summary" data-action="toggle-steps">'+svgCheck('var(--acc)')+'处理完成 · 4 步 · 2.4 秒&nbsp;'+svgChevron('down')+'</button>'
+      +'<div class="review-sum">准备了 2 项分流修改，等待你确认。</div>'
+      +'<div style="padding:12px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;margin-top:8px">'
+      +'<div style="font-size:12px;font-weight:600;color:var(--fg);margin-bottom:8px">发送给 AI 的内容（已匿名化）</div>'
+      +'<div class="priv-code">出口1（日本）、出口2（美国）、出口3（香港）、出口4（未指定）、出口5（新加坡）</div>'
+      +'<div style="font-size:12px;font-weight:500;color:var(--fg2);margin-bottom:4px">指令</div>'
+      +'<div class="priv-code">Netflix 走出口1（日本），ChatGPT 走出口2（美国）</div>'
+      +'<div class="priv-unsent">未发送：节点地址、密码、订阅链接、现有规则内容</div>'
+      +'</div>'
+      +'<div class="review-actions"><button class="btn-pri-gl" data-action="write-draft">写入草稿 ⌘⇧↩</button><button class="btn-neu" data-action="discard">放弃</button></div>'
+      +'</div>';
+  } else if(cs==='clarify'){
+    html = userMsg
+      +'<div class="msg-asst"><div class="asst-text"><p>请告诉我 YouTube 走哪个出口。</p></div>'
+      +'<div class="qr-row">'
+      +'<button class="qchip" data-action="qreply" data-msg="YouTube 走日本出口">🇯🇵 日本出口</button>'
+      +'<button class="qchip" data-action="qreply" data-msg="YouTube 走美国出口">🇺🇸 美国出口</button>'
+      +'<button class="qchip" data-action="qreply" data-msg="YouTube 走香港出口">🇭🇰 香港出口</button>'
+      +'</div>'
+      +'</div>';
+  } else if(cs==='outofscope'){
+    html = userMsg
+      +'<div class="msg-asst"><div class="asst-text">'
+      +'<p>我只编辑分流规则，不能测速或切换运行中的节点。</p>'
+      +'<p>你可以指定一个出口，例如"YouTube 走香港"。</p>'
+      +'</div></div>';
+  } else if(cs==='error-401'){
+    html = userMsg
+      +'<div class="msg-asst">'
+      +'<div class="error-block">'
+      +'<div class="error-title">'+svgErr()+'&nbsp;AI 请求失败（HTTP 401）</div>'
+      +'<div class="error-desc">API 密钥无效或已过期。请检查设置中的密钥，或改用本地解析模式。</div>'
+      +'<div class="error-acts">'
+      +'<button class="btn-sm" data-action="open-settings">打开设置</button>'
+      +'<button class="btn-sm" data-action="local-mode">改用本地解析</button>'
+      +'<button class="btn-sm" data-action="retry">重试</button>'
+      +'</div>'
+      +'</div>'
+      +'</div>';
+  } else if(cs==='error-validate'){
+    var a1v = S.accepts[0], a2v = S.accepts[1];
+    var countv = (a1v?1:0)+(a2v?1:0);
+    html = userMsg
+      +'<div class="msg-asst">'
+      +'<button class="steps-summary" data-action="toggle-steps">'+svgCheck('var(--acc)')+'处理完成 · 4 步 · 2.4 秒&nbsp;'+svgChevron('down')+'</button>'
+      +'<div class="review-sum">准备了 2 项分流修改，等待你确认。</div>'
+      +'<div class="change-item"><div class="change-info"><div class="change-title">Netflix → 日本出口（日本 · 推断）</div><div class="change-meta">规则集 MetaCubeX geosite/netflix · 地址已验证</div></div><button class="toggle'+(a1v?' on':'')+'" data-action="toggle-accept" data-idx="0" role="switch" aria-checked="'+(a1v?'true':'false')+'" aria-label="接受此修改"></button></div>'
+      +'<div class="change-item"><div class="change-info"><div class="change-title">ChatGPT → 美国出口（美国 · 推断）</div><div class="change-meta">规则集 MetaCubeX geosite/openai · 地址已验证</div></div><button class="toggle'+(a2v?' on':'')+'" data-action="toggle-accept" data-idx="1" role="switch" aria-checked="'+(a2v?'true':'false')+'" aria-label="接受此修改"></button></div>'
+      +'<div class="val-badge fail">'+svgErr()+'&nbsp;Mihomo 校验失败 · rule-providers.netflix: url 字段缺失</div>'
+      +'<div style="font-size:11px;color:var(--fgm);margin:6px 0 10px">写入已禁用：配置未通过内核校验。修复错误后重新生成。</div>'
+      +'<div class="review-actions"><button class="btn-pri" disabled>写入草稿</button><button class="btn-neu" data-action="discard">放弃</button></div>'
+      +'</div>';
+  }
+
+  els.view.innerHTML = '<div class="chat-area" id="chat-area">'+html+'</div>';
+
+  // Auto-scroll to bottom
+  var ca = document.getElementById('chat-area');
+  if(ca) ca.scrollTop = ca.scrollHeight;
+}
+
+// ── Inspector renderer ─────────────────────────────────────────────
+function renderInspector(){
+  var tab = S.inspTab;
+  // Update tab active state
+  ['changes','rules','test','outlets'].forEach(function(t){
+    var el = document.getElementById('itab-'+t);
+    if(el){
+      el.classList.toggle('active', t===tab);
+      el.setAttribute('aria-selected', t===tab ? 'true':'false');
+    }
+  });
+
+  if(tab==='changes') renderDiff();
+  else if(tab==='rules') renderRules();
+  else if(tab==='test') renderTest();
+  else if(tab==='outlets') renderOutlets();
+}
+
+function renderDiff(){
+  var lines = [
+    {type:'ctx', n:1, text:'rule-providers:'},
+    {type:'add', n:null, text:'  netflix: {type: http, behavior: domain, format: mrs,'},
+    {type:'add', n:null, text:'    url: ...geosite/netflix.mrs, interval: 86400}'},
+    {type:'add', n:null, text:'  openai: {type: http, behavior: domain, format: mrs,'},
+    {type:'add', n:null, text:'    url: ...geosite/openai.mrs, interval: 86400}'},
+    {type:'fold', text:'… 18 行未改动'},
+    {type:'ctx', n:20, text:'rules:'},
+    {type:'add', n:null, text:'  - RULE-SET,netflix,日本出口'},
+    {type:'add', n:null, text:'  - RULE-SET,openai,美国出口'},
+    {type:'del', n:22, text:'  - DOMAIN-SUFFIX,openai.com,DIRECT'},
+    {type:'ctx', n:23, text:'  - DOMAIN-SUFFIX,example.com,DIRECT'},
+    {type:'fold', text:'… 7 行未改动'},
+  ];
+
+  var addN = 4, delN = 1;
+  var lineHtml = lines.map(function(l){
+    if(l.type==='fold'){
+      return '<button class="diff-fold" style="width:100%;display:flex;align-items:center;gap:4px;padding:3px 8px">'+svgChevron('down')+'&nbsp;'+l.text+'</button>';
+    }
+    var cls = l.type==='add'?'dl add':l.type==='del'?'dl del':'dl';
+    var pfx = l.type==='add'?'+':l.type==='del'?'−':' ';
+    return '<div class="'+cls+'"><span class="dl-num">'+(l.n||'')+'</span><span class="dl-pfx">'+pfx+'</span><span class="dl-txt">'+escHtml(l.text)+'</span></div>';
+  }).join('');
+
+  els.inspBody.innerHTML =
+    '<div class="diff-toggles">'
+    +'<button class="dtg-btn active" data-dtg="round">本轮候选</button>'
+    +'<button class="dtg-btn" data-dtg="origin">相对原始配置</button>'
+    +'</div>'
+    +'<div style="font-size:11px;color:var(--fgm);margin-bottom:8px"><span style="color:var(--acc)">+'+addN+'</span> / <span style="color:var(--err)">−'+delN+'</span></div>'
+    +'<div class="diff-view">'+lineHtml+'</div>';
+}
+
+function renderRules(){
+  var rows = RULES.map(function(r){
+    return '<tr>'
+      +'<td style="color:var(--fgm);width:24px">'+r.n+'</td>'
+      +'<td class="mono">'+r.type+'</td>'
+      +'<td class="mono" style="max-width:90px;overflow:hidden;text-overflow:ellipsis" title="'+r.match+'">'+r.match+'</td>'
+      +'<td>'+r.out+(r.isNew?' <span class="badge-new">新增</span>':'')+'</td>'
+      +'</tr>';
+  }).join('');
+
+  els.inspBody.innerHTML =
+    '<input type="search" class="rules-filter" placeholder="筛选规则…" id="rules-filter" aria-label="筛选规则">'
+    +'<table class="rules-tbl" aria-label="规则列表">'
+    +'<thead><tr><th>#</th><th>类型</th><th>匹配</th><th>出口</th></tr></thead>'
+    +'<tbody id="rules-tbody">'+rows+'</tbody>'
+    +'</table>';
+
+  var rf = document.getElementById('rules-filter');
+  var tbody = document.getElementById('rules-tbody');
+  if(rf && tbody){
+    rf.addEventListener('input', function(){
+      var q = rf.value.toLowerCase();
+      var trs = tbody.querySelectorAll('tr');
+      trs.forEach(function(tr){
+        var txt = tr.textContent.toLowerCase();
+        tr.style.display = txt.indexOf(q) >= 0 ? '' : 'none';
+      });
+    });
+  }
+}
+
+function renderTest(){
+  var resHtml = '';
+  if(S.testDomain === 'www.netflix.com'){
+    resHtml = '<div class="test-res">'
+      +'<div class="tr-line tr-skip">⚠ 第 1 条 RULE-SET,netflix 可能命中（需要内核数据，已跳过）</div>'
+      +'<div class="tr-line tr-skip">⚠ 第 2 条 RULE-SET,openai 不适用</div>'
+      +'<div class="tr-line" style="color:var(--fgm)">第 3–8 条：不匹配</div>'
+      +'<div class="tr-line tr-match">→ 第 9 条 MATCH → 自动选择</div>'
+      +'</div>';
+  } else if(S.testDomain === 'example.com'){
+    resHtml = '<div class="test-res">'
+      +'<div class="tr-line" style="color:var(--fgm)">第 1–2 条：RULE-SET，已跳过</div>'
+      +'<div class="tr-line tr-match">→ 第 3 条 DOMAIN-SUFFIX,example.com → DIRECT</div>'
+      +'</div>';
+  }
+
+  els.inspBody.innerHTML =
+    '<div class="test-row">'
+    +'<input type="text" class="test-in" id="test-domain-in" value="'+escHtml(S.testDomain)+'" placeholder="www.example.com" aria-label="测试域名">'
+    +'<button class="btn-test" id="btn-test-run">测试</button>'
+    +'</div>'
+    +resHtml;
+
+  var btn = document.getElementById('btn-test-run');
+  var inp = document.getElementById('test-domain-in');
+  if(btn && inp){
+    btn.addEventListener('click', function(){
+      S.testDomain = inp.value.trim();
+      renderTest();
+    });
+    inp.addEventListener('keydown', function(e){
+      if(e.key==='Enter'){ S.testDomain = inp.value.trim(); renderTest(); }
+    });
+  }
+}
+
+function renderOutlets(){
+  var rows = OUTLETS.map(function(o){
+    return '<div class="outlet-tab-row">'
+      +'<div class="otr-name">'+o.name+'</div>'
+      +'<div class="otr-type">'+o.type+'</div>'
+      +'<div class="otr-reg">'+(o.region==='—'?'':o.region)+'</div>'
+      +'</div>';
+  }).join('');
+  els.inspBody.innerHTML = rows;
+}
+
+// ── Send button ────────────────────────────────────────────────────
+function updateSendBtn(){
+  var isGen = S.chatState === 'generating';
+  els.btnSend.style.display = isGen ? 'none' : '';
+  var stop = document.querySelector('.stop-btn');
+  if(isGen && !stop){
+    var s = document.createElement('button');
+    s.className = 'stop-btn';
+    s.setAttribute('aria-label','停止');
+    s.setAttribute('title','停止生成');
+    s.id = 'btn-stop';
+    s.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="2"/></svg>';
+    els.btnSend.parentNode.insertBefore(s, els.btnSend.nextSibling);
+  } else if(!isGen && stop){
+    stop.remove();
+  }
+}
+
+// ── Autocomplete ───────────────────────────────────────────────────
+var AC_OUTLETS = OUTLETS.slice(0,5).map(function(o){ return {name:o.name, reg:o.region, type:o.type}; });
+var AC_CMDS = [
+  {name:'/test', meta:'测试域名', type:'命令'},
+  {name:'/undo', meta:'撤销上一次写入', type:'命令'},
+  {name:'/export', meta:'导出配置', type:'命令'},
+  {name:'/rules', meta:'查看规则列表', type:'命令'},
+];
+
+function showAC(type){
+  var items = type==='@' ? AC_OUTLETS : AC_CMDS;
+  els.acHeader.textContent = type==='@' ? '出口' : '命令';
+  els.acList.innerHTML = items.map(function(it){
+    return '<div class="ac-item" tabindex="-1">'
+      +'<span class="ac-name">'+escHtml(it.name)+'</span>'
+      +'<span class="ac-meta">'+(it.reg||it.meta||'')+'</span>'
+      +'<span class="ac-tag">'+it.type+'</span>'
+      +'</div>';
+  }).join('');
+  els.acPopup.classList.add('show');
+}
+function hideAC(){ els.acPopup.classList.remove('show'); }
+
+// ── Toast ──────────────────────────────────────────────────────────
+var toastTimer = null;
+function showToast(msg){
+  els.toast.textContent = msg;
+  els.toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ els.toast.classList.remove('show'); }, 3500);
+}
+
+// Demo select mapping
+var DEMO_MAP = {
+  'welcome':             function(){ S.view='welcome'; S.chatState='empty'; },
+  'outlet-confirm':      function(){ S.view='outlet-confirm'; S.chatState='empty'; },
+  'chat-empty':          function(){ S.view='chat'; S.chatState='empty'; },
+  'chat-generating':     function(){ S.view='chat'; S.chatState='generating'; },
+  'chat-review':         function(){ S.view='chat'; S.chatState='review'; S.written=false; },
+  'chat-written':        function(){ S.view='chat'; S.chatState='written'; S.written=true; },
+  'chat-ai-payload':     function(){ S.view='chat'; S.chatState='ai-payload'; },
+  'chat-clarify':        function(){ S.view='chat'; S.chatState='clarify'; },
+  'chat-outofscope':     function(){ S.view='chat'; S.chatState='outofscope'; },
+  'chat-error-401':      function(){ S.view='chat'; S.chatState='error-401'; },
+  'chat-error-validate': function(){ S.view='chat'; S.chatState='error-validate'; },
+};
+
+// ── Sheet renderers ────────────────────────────────────────────────
+function openSheet(type){
+  S.sheet = type;
+  els.sheetOv.classList.add('show');
+  if(type==='settings') renderSettings();
+  else if(type==='export') renderExport();
+  else if(type==='ai-payload') renderAIPayload();
+  else if(type==='sub-link') renderSubLink();
+  els.sheetOv.querySelector('[tabindex]') && els.sheetOv.querySelector('[tabindex]').focus();
+}
+function closeSheet(){
+  S.sheet = null;
+  els.sheetOv.classList.remove('show');
+  els.sheetIn.innerHTML = '';
+}
+
+function sheetWrap(title, wide, body){
+  return '<div class="sheet'+(wide?' wide':'')+'"><div class="sheet-hd">'
+    +'<div class="sheet-ti">'+title+'</div>'
+    +'<button class="sheet-x" data-action="close-sheet" aria-label="关闭">×</button>'
+    +'</div><div class="sheet-bd">'+body+'</div></div>';
+}
+
+function renderSettings(){
+  var t = S.settingsTab;
+  var tabs = ['ai','privacy','validate'].map(function(id){
+    var labels = {ai:'AI',privacy:'隐私',validate:'校验'};
+    return '<button class="stab'+(t===id?' active':'')+'" data-stab="'+id+'">'+labels[id]+'</button>';
+  }).join('');
+
+  var body = '<div class="stabs" role="tablist">'+tabs+'</div>';
+
+  if(t==='ai'){
+    body += '<div class="fg"><label class="fl">AI 服务</label><select class="fsel"><option>DeepSeek</option><option>OpenAI</option><option>OpenRouter</option><option>Ollama 本机</option><option>自定义</option></select></div>'
+      +'<div class="fg"><label class="fl">Base URL</label><input class="fi" type="url" value="https://api.deepseek.com/v1"></div>'
+      +'<div class="fg"><label class="fl">模型</label><input class="fi" type="text" value="deepseek-chat"></div>'
+      +'<div class="fg"><label class="fl">API Key</label><div class="key-wrap"><input class="fi" type="password" value="sk-placeholder"><span class="key-st">已保存到钥匙串</span></div></div>'
+      +'<div class="frow"><div class="fg"><label class="fl">&nbsp;</label></div><button class="btn-conn" id="btn-conn" data-action="test-conn">测试连接</button></div>'
+      +(S.connectResult==='ok' ? '<div class="conn-ok">'+svgCheck('var(--acc)')+'&nbsp;连接成功，模型可用</div>' : '')
+      +(S.connectResult==='fail' ? '<div class="conn-fail">'+svgErr()+'&nbsp;连接失败（timeout），请检查网络或 Base URL</div>' : '');
+  } else if(t==='privacy'){
+    body += '<div class="priv-section">'
+      +'<h4>发送给 AI 的内容</h4>'
+      +'<p>Veer 在本地解析你的配置文件，AI 只收到匿名化的出口表与你的指令。节点地址、密码、订阅链接、现有规则内容均不会发送。</p>'
+      +'<h4>示例 payload</h4>'
+      +'<div class="priv-code">出口1（日本）、出口2（美国）、出口3（香港）\n指令："Netflix 走出口1（日本），ChatGPT 走出口2（美国）"</div>'
+      +'<div class="priv-unsent">未发送：节点地址、密码、订阅链接、现有规则</div>'
+      +'</div>';
+  } else {
+    body += '<div class="ck-row"><input type="checkbox" id="ck-validate" checked aria-label="导出前默认校验"><label class="ck-lbl" for="ck-validate">导出前默认进行内核校验</label></div>'
+      +'<div style="padding:10px 12px;background:rgba(31,157,85,0.08);border:1px solid rgba(31,157,85,0.2);border-radius:10px;font-size:12px">'
+      +'<div style="font-weight:600;color:var(--acc);margin-bottom:4px">'+svgCheck('var(--acc)')+'&nbsp;内置 Mihomo（Veer mirror v1.19.29）· 可用</div>'
+      +'<div style="color:var(--fg2)">内核版本：mihomo v1.19.29（Veer mirror）<br>校验包含：YAML 语法、字段合法性、rule-providers 完整性。不包含网络可达性验证。</div>'
+      +'</div>';
+  }
+
+  body += '<div class="sheet-actions"><button class="btn-pri" data-action="close-sheet">完成</button></div>';
+  els.sheetIn.innerHTML = sheetWrap('设置', true, body);
+}
+
+function renderExport(){
+  var body = '<div class="export-stats">'
+    +'相对原始配置：<span class="eplus">+4 行</span> <span class="eminus">−1 行</span>，新增 2 个规则集'
+    +'</div>'
+    +'<div class="export-check-row">'
+    +'<input type="checkbox" id="ck-export-val" checked aria-label="导出前进行内核校验">'
+    +'<label class="ck-lbl" for="ck-export-val">导出前进行内核校验</label>'
+    +'</div>'
+    +'<p class="export-note">将导出完整配置副本，不会覆盖原文件。</p>'
+    +'<div class="sheet-actions">'
+    +'<button class="btn-neu" data-action="close-sheet">取消</button>'
+    +'<button class="btn-pri" data-action="do-export">导出…</button>'
+    +'</div>';
+  els.sheetIn.innerHTML = sheetWrap('导出完整配置副本', false, body);
+}
+
+function renderAIPayload(){
+  var body = '<div class="priv-section">'
+    +'<h4>出口表（已匿名化）</h4>'
+    +'<div class="priv-code">出口1（日本）、出口2（美国）、出口3（香港）\n出口4（未指定）、出口5（新加坡）</div>'
+    +'<h4>指令</h4>'
+    +'<div class="priv-code">Netflix 走出口1（日本），ChatGPT 走出口2（美国）</div>'
+    +'<div class="priv-unsent">未发送：节点地址、密码、订阅链接、现有规则内容</div>'
+    +'</div>'
+    +'<div class="sheet-actions"><button class="btn-pri" data-action="close-sheet">关闭</button></div>';
+  els.sheetIn.innerHTML = sheetWrap('发送给 AI 的内容', false, body);
+}
+
+function renderSubLink(){
+  var st = S.subState;
+  var body = '<div class="sub-states '+st+'">'
+    +'<div class="sub-idle"><div class="fg"><label class="fl">订阅链接</label><input class="fi" type="url" id="sub-url-input" placeholder="https://example.com/config.yaml"></div></div>'
+    +'<div class="sub-loading"><div class="loading-row"><div class="spinner"></div>正在获取订阅配置…</div></div>'
+    +'<div class="sub-error"><div class="inline-warn">'+svgErr()+'<div class="inline-warn-t">链接返回了重定向（301），Veer 不会自动跟随。请检查链接是否正确，或使用最终 URL。</div></div></div>'
+    +'</div>'
+    +'<div class="sheet-actions">'
+    +(st==='error' ? '<button class="btn-neu" data-action="sub-retry">重试</button>' : '')
+    +(st==='idle' ? '<button class="btn-neu" data-action="close-sheet">取消</button><button class="btn-pri" id="btn-sub-import" data-action="sub-import">导入</button>' : '')
+    +(st==='loading' ? '<button class="btn-neu" data-action="close-sheet">取消</button>' : '')
+    +(st==='error' ? '<button class="btn-pri" data-action="close-sheet">关闭</button>' : '')
+    +'</div>';
+  els.sheetIn.innerHTML = sheetWrap('订阅链接', false, body);
+}
+
+// ── Escape HTML ────────────────────────────────────────────────────
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Global click handler (event delegation) ────────────────────────
+document.addEventListener('click', function(e){
+  var el = e.target;
+  // Walk up to find data-action
+  while(el && el !== document.body){
+    var action = el.getAttribute('data-action');
+    if(action){ handleAction(action, el); return; }
+    // Inspector tabs
+    if(el.classList.contains('insp-tab')){
+      S.inspTab = el.getAttribute('data-tab');
+      renderInspector();
+      return;
+    }
+    // Diff toggles
+    if(el.classList.contains('dtg-btn')){
+      el.parentNode.querySelectorAll('.dtg-btn').forEach(function(b){ b.classList.remove('active'); });
+      el.classList.add('active');
+      return;
+    }
+    // Settings tabs
+    if(el.hasAttribute('data-stab')){
+      S.settingsTab = el.getAttribute('data-stab');
+      renderSettings();
+      return;
+    }
+    // Session items
+    if(el.classList.contains('sess') || el.closest('.sess')){
+      var sess = el.classList.contains('sess') ? el : el.closest('.sess');
+      SESSIONS.forEach(function(s){ s.active = s.id === sess.getAttribute('data-sid'); });
+      renderSessions();
+      return;
+    }
+    el = el.parentElement;
+  }
+});
+
+function handleAction(action, el){
+  if(action==='import-file'){
+    S.view = 'outlet-confirm';
+    renderView();
+  } else if(action==='try-example'){
+    S.view = 'outlet-confirm';
+    renderView();
+  } else if(action==='sub-link'){
+    S.subState = 'idle';
+    openSheet('sub-link');
+  } else if(action==='paste-yaml'){
+    S.view = 'outlet-confirm';
+    renderView();
+  } else if(action==='start-edit'){
+    S.view = 'chat';
+    S.chatState = 'empty';
+    S.written = false;
+    S.undoStack = [];
+    S.redoStack = [];
+    renderView();
+  } else if(action==='skip-outlet'){
+    S.view = 'chat';
+    S.chatState = 'empty';
+    renderView();
+  } else if(action==='send-chip'){
+    var msg = el.getAttribute('data-msg');
+    startGenerating(msg);
+  } else if(action==='toggle-steps'){
+    S.stepsExpanded = !S.stepsExpanded;
+    renderChat();
+    var ca = document.getElementById('chat-area');
+    if(ca) ca.scrollTop = ca.scrollHeight;
+  } else if(action==='toggle-accept'){
+    var idx = parseInt(el.getAttribute('data-idx'), 10);
+    S.accepts[idx] = !S.accepts[idx];
+    renderChat();
+    renderInspector();
+    var ca = document.getElementById('chat-area');
+    if(ca) ca.scrollTop = ca.scrollHeight;
+  } else if(action==='write-draft'){
+    S.undoStack.push({chatState:'review', written:false, accepts:[S.accepts[0],S.accepts[1]]});
+    S.redoStack = [];
+    S.chatState = 'written';
+    S.written = true;
+    updateToolbar();
+    renderChat();
+    showToast('已写入草稿，尚未导出');
+    renderInspector();
+  } else if(action==='undo-write'){
+    if(S.undoStack.length > 0){
+      var prev = S.undoStack.pop();
+      S.redoStack.push({chatState:'written', written:true, accepts:[S.accepts[0],S.accepts[1]]});
+      S.chatState = prev.chatState;
+      S.written = prev.written;
+      S.accepts = prev.accepts;
+      updateToolbar();
+      renderChat();
+      renderInspector();
+      showToast('已撤销');
+    }
+  } else if(action==='discard'){
+    S.chatState = 'empty';
+    S.accepts = [true, true];
+    renderChat();
+  } else if(action==='show-diff'){
+    S.inspTab = 'changes';
+    if(!S.inspOpen){ S.inspOpen = true; }
+    renderView();
+    els.inspector.classList.remove('collapsed');
+  } else if(action==='ai-payload'){
+    openSheet('ai-payload');
+  } else if(action==='close-sheet'){
+    closeSheet();
+  } else if(action==='do-export'){
+    closeSheet();
+    showToast('已导出到 我的配置-draft.yaml');
+  } else if(action==='sub-import'){
+    var inp2 = document.getElementById('sub-url-input');
+    if(inp2 && inp2.value.trim()){
+      S.subState = 'loading';
+      renderSubLink();
+      setTimeout(function(){
+        S.subState = 'error';
+        renderSubLink();
+      }, 1800);
+    }
+  } else if(action==='sub-retry'){
+    S.subState = 'idle';
+    renderSubLink();
+  } else if(action==='qreply'){
+    var qmsg = el.getAttribute('data-msg');
+    startGenerating(qmsg);
+  } else if(action==='open-settings'){
+    S.settingsTab = 'ai';
+    openSheet('settings');
+  } else if(action==='local-mode'){
+    S.aiMode = false;
+    els.modeLabel.textContent = '本地解析';
+    S.chatState = 'empty';
+    renderChat();
+    showToast('已切换为本地解析模式');
+  } else if(action==='retry'){
+    startGenerating('Netflix 走日本，ChatGPT 走美国');
+  } else if(action==='test-conn'){
+    var btn2 = document.getElementById('btn-conn');
+    if(btn2){ btn2.textContent = '测试中…'; btn2.disabled = true; }
+    setTimeout(function(){
+      S.connectResult = 'ok';
+      renderSettings();
+    }, 1200);
+  }
+}
+
+// ── Generating flow ────────────────────────────────────────────────
+function startGenerating(msg){
+  S.chatState = 'generating';
+  S.accepts = [true, true];
+  S.stepsExpanded = false;
+  S.written = false;
+  renderView();
+  if(S.genTimer) clearTimeout(S.genTimer);
+  S.genTimer = setTimeout(function(){
+    S.chatState = 'review';
+    renderView();
+    var ca = document.getElementById('chat-area');
+    if(ca) ca.scrollTop = ca.scrollHeight;
+  }, 2200);
+}
+
+// ── Toolbar buttons ────────────────────────────────────────────────
+els.btnSb.addEventListener('click', function(){
+  S.sbOpen = !S.sbOpen;
+  updateToolbar();
+});
+
+els.btnInsp.addEventListener('click', function(){
+  S.inspOpen = !S.inspOpen;
+  updateToolbar();
+  if(S.inspDataAvail) renderInspector();
+});
+
+els.btnDark.addEventListener('click', function(){
+  S.dark = !S.dark;
+  applyTheme();
+});
+
+els.btnUndo.addEventListener('click', function(){
+  if(S.undoStack.length > 0){
+    var prev = S.undoStack.pop();
+    S.redoStack.push({chatState:S.chatState, written:S.written, accepts:[S.accepts[0],S.accepts[1]]});
+    S.chatState = prev.chatState;
+    S.written = prev.written;
+    S.accepts = prev.accepts;
+    updateToolbar();
+    renderChat();
+    renderInspector();
+    showToast('已撤销');
+  }
+});
+
+els.btnRedo.addEventListener('click', function(){
+  if(S.redoStack.length > 0){
+    var next = S.redoStack.pop();
+    S.undoStack.push({chatState:S.chatState, written:S.written, accepts:[S.accepts[0],S.accepts[1]]});
+    S.chatState = next.chatState;
+    S.written = next.written;
+    S.accepts = next.accepts;
+    updateToolbar();
+    renderChat();
+    renderInspector();
+    showToast('已重做');
+  }
+});
+
+els.btnExport.addEventListener('click', function(){
+  if(!els.btnExport.disabled) openSheet('export');
+});
+
+els.demoSel.addEventListener('change', function(){
+  var val = els.demoSel.value;
+  var fn = DEMO_MAP[val];
+  if(fn){ fn(); renderView(); }
+});
+
+els.btnNew.addEventListener('click', function(){
+  // Simulate picking a file → go straight to outlet confirmation
+  S.view = 'outlet-confirm';
+  S.chatState = 'empty';
+  S.written = false;
+  S.undoStack = [];
+  S.redoStack = [];
+  renderView();
+});
+
+els.btnSettings.addEventListener('click', function(){
+  S.settingsTab = 'ai';
+  openSheet('settings');
+});
+
+// ── Input bar ──────────────────────────────────────────────────────
+var msgInput = els.msgInput;
+if(msgInput){
+  msgInput.addEventListener('input', function(){
+    // Auto resize
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 160) + 'px';
+
+    var val = msgInput.value;
+    var lastChar = val[val.length - 1];
+    if(lastChar === '@'){
+      showAC('@');
+    } else if(lastChar === '/'){
+      showAC('/');
+    } else {
+      hideAC();
+    }
+  });
+
+  msgInput.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') hideAC();
+    if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)){
+      e.preventDefault();
+      var v = msgInput.value.trim();
+      if(v && S.view === 'chat' && S.chatState !== 'generating'){
+        msgInput.value = '';
+        msgInput.style.height = '';
+        hideAC();
+        startGenerating(v);
+      }
+    }
+  });
+}
+
+els.btnSend.addEventListener('click', function(){
+  var v = msgInput ? msgInput.value.trim() : '';
+  if(v && S.view === 'chat' && S.chatState !== 'generating'){
+    if(msgInput){ msgInput.value = ''; msgInput.style.height = ''; }
+    hideAC();
+    startGenerating(v);
+  }
+});
+
+// Stop button (delegated, added dynamically)
+document.addEventListener('click', function(e){
+  if(e.target && (e.target.id === 'btn-stop' || e.target.closest && e.target.closest('#btn-stop'))){
+    if(S.genTimer){ clearTimeout(S.genTimer); S.genTimer = null; }
+    S.chatState = 'empty';
+    renderView();
+  }
+});
+
+// Mode toggle
+els.modeBtn.addEventListener('click', function(){
+  S.aiMode = !S.aiMode;
+  els.modeLabel.textContent = S.aiMode ? 'AI · deepseek-chat' : '本地解析';
+});
+
+// Sheet overlay backdrop close
+els.sheetOv.addEventListener('click', function(e){
+  if(e.target === els.sheetOv) closeSheet();
+});
+
+// Keyboard: Escape closes sheet
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    if(S.sheet) closeSheet();
+    hideAC();
+  }
+});
+
+// Resize: check overlay
+window.addEventListener('resize', function(){
+  checkOverlay();
+});
+
+// prefers-color-scheme listener
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e){
+  if(document.documentElement.getAttribute('data-theme') !== 'light' || e.matches){
+    S.dark = e.matches;
+    applyTheme();
+  }
+});
+
+// ── Init ───────────────────────────────────────────────────────────
+applyTheme();
+renderSessions();
+renderView();
+
+})();
+</script>
+</body>
+</html>
