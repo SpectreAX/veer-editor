@@ -85,7 +85,7 @@ public enum LocalIntentParser {
         if reject || (defaultReject && longestNamed.isEmpty && asked.isEmpty) { return .target(targets.first { $0.name == "REJECT" }!) }
         if let only = longestNamed.first { return .target(only) }
         guard let region = asked.first else {
-            return .ask("请告诉我这些流量走哪个出口。也可以在输入框输入 @ 直接选择。", [])
+            return .ask(SystemPrompt.askForExit, [])
         }
         let regional = exits.filter { (regions[$0.name] ?? .unknown) == region }
         let groups = regional.filter { $0.kind == .group }

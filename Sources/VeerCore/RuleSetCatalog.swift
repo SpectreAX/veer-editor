@@ -34,7 +34,7 @@ public enum RuleSetCatalog {
                                url: { "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/\($0)/\($0).list" }, key: { $0 }),
     ]
 
-    public static let findHelp = "请在以下仓库找到对应文件，复制 Raw 地址后发给我：MetaCubeX（推荐，meta 分支 → geo → geosite 或 geoip）https://github.com/MetaCubeX/meta-rules-dat ；ACL4SSR https://github.com/ACL4SSR/ACL4SSR/tree/master/Clash ；blackmatrix7 https://github.com/blackmatrix7/ios_rule_script/tree/master/rule/Clash"
+    public static var findHelp: String { SystemPrompt.findRuleSetHelp }
 
     static let serviceNames: [String: String] = [
         "netflix": "Netflix", "openai": "ChatGPT", "youtube": "YouTube", "google": "Google", "telegram": "Telegram",

@@ -53,7 +53,8 @@ public struct EditorEngine: Sendable {
         let context = AnonymousContext(targets: request.draft.targets, regions: request.regions)
         return AIRequestPayload(model: request.settings.model, exits: context.exits.map(\.label),
                                 history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
-                                instruction: context.anonymize(request.prompt))
+                                instruction: context.anonymize(request.prompt),
+                                system: AIClient.systemPrompt(exits: context.exits))
     }
 
     public func run(_ request: Request, progress: @Sendable (Progress) async -> Void) async throws -> Output {

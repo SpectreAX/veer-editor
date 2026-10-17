@@ -393,6 +393,17 @@ struct PayloadSheet: View {
             .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.medium))
             .overlay(RoundedRectangle(cornerRadius: Radius.medium).strokeBorder(Color.separatorLine))
             .frame(minHeight: 220)
+            if let system = turn.sentPayload?.system {
+                DisclosureGroup("系统说明（每轮相同，只含匿名出口）") {
+                    ScrollView {
+                        Text(system).font(Typography.codeSmall).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(Spacing.sm)
+                    }
+                    .frame(height: 180)
+                    .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.small))
+                }
+                .font(.callout)
+            }
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Label("未发送：节点地址、密码、订阅链接、现有规则、真实出口名称", systemImage: "lock.shield")
                 Label("你在指令里亲自输入的内容会原样发送（出口名除外），请勿填写密钥", systemImage: "exclamationmark.triangle")
@@ -401,6 +412,6 @@ struct PayloadSheet: View {
             HStack { Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.defaultAction) }
         }
         .padding(Spacing.xl)
-        .frame(width: 520, height: 480)
+        .frame(width: 560, height: 560)
     }
 }
