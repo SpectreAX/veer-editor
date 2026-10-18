@@ -232,6 +232,10 @@ enum SnapshotRunner {
         settings.makeKeyAndOrderFront(nil)
         await settle(1.0)
         capture(settings, to: directory.appendingPathComponent("28-settings-\(suffix).png"))
+        store.sessionKey = nil
+        await settle(0.6)
+        capture(settings, to: directory.appendingPathComponent("28-settings-key-entry-\(suffix).png"))
+        store.sessionKey = "sk-snapshot"
         settings.orderOut(nil)
         await settle(0.4)
         store.useAI = false
