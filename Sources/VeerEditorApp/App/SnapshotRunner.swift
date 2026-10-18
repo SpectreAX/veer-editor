@@ -175,6 +175,15 @@ enum SnapshotRunner {
         }
         await shot("24-clarify-resolved")
 
+        // One service, two regions: a new group named after the service.
+        let twhk = (1...2).map { "  - {name: \"🇹🇼 台北 0\($0)\", type: ss, server: tw\($0).example.invalid, port: 443, cipher: aes-128-gcm, password: p}" }
+            + (1...2).map { "  - {name: \"🇭🇰 香港 0\($0)\", type: ss, server: hk\($0).example.invalid, port: 443, cipher: aes-128-gcm, password: p}" }
+        store.importText("proxies:\n" + twhk.joined(separator: "\n") + "\nproxy-groups:\n  - {name: 🚀 Proxy, type: select, proxies: [\"🇹🇼 台北 01\", \"🇭🇰 香港 01\"]}\nrules:\n  - MATCH,🚀 Proxy\n", title: "TWHK.yaml")
+        store.confirmExits()
+        store.send("巴哈姆特走台湾和香港")
+        await waitIdle(store)
+        await shot("25-new-group")
+
         store.newImport()
         await shot("20-start-with-sessions")
         store.select(store.sessions[0].id)

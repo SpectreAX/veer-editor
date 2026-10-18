@@ -14,6 +14,7 @@ public enum LocalIntentParser {
         (#"tiktok|抖音国际"#, "tiktok"),
         (#"claude|anthropic"#, "anthropic"),
         (#"disney"#, "disney"),
+        (#"巴哈姆特|巴哈|bahamut"#, "bahamut"),
         (#"广告|\bads?\b"#, "category-ads-all"),
     ]
 
@@ -33,6 +34,7 @@ public enum LocalIntentParser {
         let suggestions = Array(exits.filter { $0.kind == .group }.prefix(4).map(\.name))
         let exitNames = exits.map(\.name)
         var operations: [EditPlan.Operation] = []
+        var newGroupCount = 0
         for clause in clauses(trimmed, exitNames: exits.map(\.name)) {
             if clause.matches(#"不要|不走|别走|别用|不使用|除了|除外|except|unless|\bnot\b|don't"#) {
                 throw EditorError("本地解析不支持否定或例外条件。请改用明确的正向指令，或切换到 AI 解析。")
@@ -52,9 +54,17 @@ public enum LocalIntentParser {
                 continue
             }
 
-            let target: Target
+            let targetID: String
             switch try resolveExit(clause, targets: targets, regions: regions, defaultReject: geosites == ["category-ads-all"]) {
-            case .target(let found): target = found
+            case .target(let found): targetID = found.id
+            case let .newGroup(groupRegions, members):
+                // One service, several regions or exits: a group named after the service holds them all.
+                newGroupCount += 1
+                let id = "new-\(newGroupCount)"
+                let subjects = geosites.map(RuleSetCatalog.displayName(for:)) + domains
+                let name = subjects.isEmpty ? "新策略组" : String(subjects.prefix(3).joined(separator: "、").prefix(60))
+                operations.append(.group(EditPlan.NewGroup(id: id, name: name, regions: groupRegions, members: members.map(\.id))))
+                targetID = id
             case .ask(let question, let names):
                 // Each choice rewrites only this clause's exit phrase, so answering never repeats the question.
                 let choices = names.isEmpty ? suggestions : names
@@ -62,9 +72,9 @@ public enum LocalIntentParser {
                     ClarifyOption(label: $0, prompt: resolved(trimmed, clause: clause, exit: $0, exitNames: exitNames))
                 })
             }
-            for domain in domains { operations.append(.route(matchType: "DOMAIN-SUFFIX", match: domain, targetId: target.id)) }
+            for domain in domains { operations.append(.route(matchType: "DOMAIN-SUFFIX", match: domain, targetId: targetID)) }
             for geosite in geosites {
-                operations.append(.ruleSet(.catalog(source: "metacubex-geosite", name: geosite), targetId: target.id))
+                operations.append(.ruleSet(.catalog(source: "metacubex-geosite", name: geosite), targetId: targetID))
             }
         }
         guard !operations.isEmpty else { throw EditorError("没有识别到可执行的修改。") }
@@ -72,7 +82,12 @@ public enum LocalIntentParser {
         return .plan(EditPlan(operations: operations))
     }
 
-    enum ExitResolution { case target(Target), ask(String, [String]) }
+    enum ExitResolution {
+        case target(Target)
+        case ask(String, [String])
+        /// Several regions and/or named exits for one clause.
+        case newGroup(regions: [Region], members: [Target])
+    }
 
     static func resolveExit(_ clause: String, targets: [Target], regions: [String: Region], defaultReject: Bool) throws -> ExitResolution {
         let exits = targets.filter { $0.kind != .builtin }
@@ -83,11 +98,22 @@ public enum LocalIntentParser {
         var regionScan = clause
         for name in exits.map(\.name).sorted(by: { $0.count > $1.count }) { regionScan = regionScan.replacingOccurrences(of: name, with: " ") }
         let longestNamed = named.filter { candidate in !named.contains { $0.name != candidate.name && $0.name.contains(candidate.name) } }
-        let asked = Region.allCases.filter { $0.instructionPattern.map(regionScan.matches) ?? false }
+        // In the order the user wrote them ("台湾和香港" → TW, HK).
+        let asked = Region.allCases
+            .compactMap { region -> (Region, String.Index)? in
+                guard let pattern = region.instructionPattern,
+                      let range = regionScan.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else { return nil }
+                return (region, range.lowerBound)
+            }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
 
         let actions = (direct ? 1 : 0) + (reject ? 1 : 0) + (longestNamed.isEmpty && asked.isEmpty ? 0 : 1)
-        if actions > 1 || longestNamed.count > 1 || asked.count > 1 {
-            throw EditorError("同一句里有多个出口或动作，请一次只指定一个方向，或拆成多句。")
+        if actions > 1 {
+            throw EditorError("同一句里既有代理出口又有直连或拦截，请拆成两句。")
+        }
+        if longestNamed.count + asked.count > 1 {
+            return .newGroup(regions: asked, members: longestNamed)
         }
         if direct { return .target(targets.first { $0.name == "DIRECT" }!) }
         if reject || (defaultReject && longestNamed.isEmpty && asked.isEmpty) { return .target(targets.first { $0.name == "REJECT" }!) }
@@ -129,7 +155,8 @@ public enum LocalIntentParser {
             placeholders[token] = name
             protected = protected.replacingOccurrences(of: name, with: token)
         }
-        let parts = protected.components(separatedBy: CharacterSet(charactersIn: "\n;；,，、。"))
+        // "、" lists items inside one clause ("台湾、香港"), so it is not a separator.
+        let parts = protected.components(separatedBy: CharacterSet(charactersIn: "\n;；,，。"))
             .flatMap { $0.components(separatedBy: "同时") }
             .flatMap { $0.components(separatedBy: "并且") }
             .flatMap { $0.replacingOccurrences(of: #"\s+and\s+"#, with: "\u{E002}", options: [.regularExpression, .caseInsensitive]).components(separatedBy: "\u{E002}") }

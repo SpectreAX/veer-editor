@@ -17,6 +17,17 @@ struct RealValidatorTests {
         #expect(!(broken.detail ?? "").contains("placeholder-password"))
     }
 
+    /// A plan that creates a group must still pass Mihomo.
+    @Test func newGroupsPassMihomo() async throws {
+        let doc = try GroupFixture.document()
+        guard case .plan(let plan) = try LocalIntentParser.parse("巴哈姆特走台湾和香港", targets: doc.targets, regions: GroupFixture.regions(doc)) else {
+            Issue.record("expected plan"); return
+        }
+        let candidate = try PlanApplier.apply(plan, to: doc, regions: GroupFixture.regions(doc)).candidate
+        let check = await MihomoValidator().validate(candidate)
+        #expect(check.status == .passed, "\(check.message) \(check.detail ?? "")")
+    }
+
     /// Configs generated from share links must pass Mihomo's own parser.
     @Test func generatedConfigsPassMihomo() async throws {
         let validator = MihomoValidator()

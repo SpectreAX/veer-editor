@@ -9,6 +9,28 @@ public struct EditPlan: Codable, Sendable, Hashable {
         case route(matchType: String, match: String, targetId: String)
         case removeRule(matchType: String, match: String)
         case ruleSet(RuleSetReference, targetId: String)
+        /// A new proxy group appended to `proxy-groups`. Other operations in the same plan can
+        /// target it by `NewGroup.id` (e.g. "new-1").
+        case group(NewGroup)
+    }
+
+    /// One group to create. Members come from `regions` (nodes Veer has tagged with those
+    /// regions, falling back to regional groups) and/or explicit existing target ids.
+    public struct NewGroup: Codable, Sendable, Hashable {
+        public static let types = ["select", "url-test", "fallback"]
+        public let id: String
+        public let name: String
+        public let type: String
+        public let regions: [Region]
+        public let members: [String]
+
+        public init(id: String, name: String, type: String = "select", regions: [Region] = [], members: [String] = []) {
+            self.id = id
+            self.name = name
+            self.type = type
+            self.regions = regions
+            self.members = members
+        }
     }
 
     public var operations: [Operation]
@@ -86,6 +108,23 @@ extension EditPlan {
         case "remove_rule":
             try fields(["kind", "matchType", "match"])
             return .removeRule(matchType: try string("matchType").uppercased(), match: try string("match"))
+        case "group":
+            try fields(["kind", "id", "name", "type", "regions", "members"])
+            let id = try string("id"), name = try string("name").trimmingCharacters(in: .whitespaces)
+            let type = (op["type"] as? String ?? "select").lowercased()
+            guard id.range(of: #"^new-[0-9]{1,2}$"#, options: .regularExpression) != nil else { throw EditorError("新策略组的 id 必须是 new-1、new-2 这样的形式。") }
+            guard !name.isEmpty, name.count <= 64, name.rangeOfCharacter(from: CharacterSet(charactersIn: ",\r\n")) == nil else {
+                throw EditorError("新策略组的名称为空、过长或包含逗号。")
+            }
+            guard NewGroup.types.contains(type) else { throw EditorError("新策略组只支持 select、url-test 或 fallback。") }
+            let regionCodes = op["regions"] as? [String] ?? []
+            let regions = try regionCodes.map { code -> Region in
+                guard let region = Region(rawValue: code.uppercased()), region != .unknown else { throw EditorError("不支持的地区代码：\(code.prefix(10))") }
+                return region
+            }
+            let members = op["members"] as? [String] ?? []
+            guard !regions.isEmpty || !members.isEmpty else { throw EditorError("新策略组需要 regions 或 members。") }
+            return .group(NewGroup(id: id, name: name, type: type, regions: regions, members: members))
         case "rule_set":
             if op["url"] != nil {
                 try fields(["kind", "url", "behavior", "targetId"])
@@ -94,7 +133,7 @@ extension EditPlan {
             try fields(["kind", "source", "name", "targetId"])
             return .ruleSet(.catalog(source: try string("source"), name: try string("name")), targetId: try string("targetId"))
         default:
-            throw EditorError("目前只支持添加、修改、删除分流规则和添加规则集（收到 \(kind.prefix(30))）。")
+            throw EditorError("目前只支持添加、修改、删除分流规则，添加规则集和新建策略组（收到 \(kind.prefix(30))）。")
         }
     }
 
@@ -108,6 +147,11 @@ extension EditPlan {
                 return ["kind": "remove_rule", "matchType": matchType, "match": match]
             case let .ruleSet(.catalog(source, name), targetId):
                 return ["kind": "rule_set", "source": source, "name": name, "targetId": targetId]
+            case let .group(group):
+                var object: [String: Any] = ["kind": "group", "id": group.id, "name": group.name, "type": group.type]
+                if !group.regions.isEmpty { object["regions"] = group.regions.map(\.rawValue) }
+                if !group.members.isEmpty { object["members"] = group.members }
+                return object
             case let .ruleSet(.url(url, behavior), targetId):
                 var object: [String: Any] = ["kind": "rule_set", "url": url, "targetId": targetId]
                 if let behavior { object["behavior"] = behavior }

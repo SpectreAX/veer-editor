@@ -68,6 +68,14 @@ public enum SystemPrompt {
         D. 删除规则：
         {"kind":"remove_rule","matchType":"DOMAIN-SUFFIX","match":"example.com"}（没有 targetId）
 
+        E. 新建策略组（一个服务要走多个地区或多个出口时使用，不要为此澄清）：
+        {"kind":"group","id":"new-1","name":"巴哈姆特","type":"select","regions":["TW","HK"]}
+        然后让该服务的规则指向它："targetId":"new-1"。
+        · Veer 会把标记为这些地区的节点放进新策略组（没有节点时用对应地区的策略组），追加到 proxy-groups 末尾，不改动任何已有策略组。成员由 Veer 决定，你不需要列出节点。
+        · regions 只能用 JP、US、HK、SG、TW、KR、GB、DE。用户点名了具体出口时，用 "members":["target-3","target-8"] 列出它们的 id，可以和 regions 同时使用。
+        · type：select（默认，用户在客户端里手动选）、url-test（自动选延迟最低）、fallback（按顺序故障转移）。用户没说就用 select。
+        · name 用服务名（如“巴哈姆特”“Netflix”），不含逗号；重名时 Veer 会自动加序号。id 用 new-1、new-2 依次编号。
+
         # 规则集来源（按优先级）
 
         1. metacubex-geosite（首选，Mihomo 官方维护，mrs 二进制，体积小）。已确认存在的名称：\(geositeNames.joined(separator: "、"))。cn 是中国大陆域名，category-ads-all 是广告。
@@ -98,8 +106,9 @@ public enum SystemPrompt {
         # 何时澄清而不是修改
 
         · 否定不是路由请求：用户只说“不要走某出口”而没有给出替代，要澄清。
-        · 互相矛盾的出口、同一匹配值的冲突修改、组合需求里有无法支持的部分：对整个需求澄清，不要返回部分计划。
-        · 测速、延迟、换节点、开关 VPN、切换运行中的策略组、修改 DNS：说明 Veer 只编辑分流规则，并澄清。
+        · 同一匹配值的冲突修改、组合需求里有无法支持的部分：对整个需求澄清，不要返回部分计划。
+        · 一个服务走“台湾和香港”这类多个地区或多个出口，不是矛盾：用操作 E 新建策略组。
+        · 测速、延迟、换节点、开关 VPN、切换运行中的策略组、修改 DNS：说明 Veer 只编辑分流规则（可以新建策略组），并澄清。
 
         # 示例（id 仅为示意，实际必须使用下方匿名配置中的 id）
 
@@ -108,6 +117,9 @@ public enum SystemPrompt {
 
         用户：YouTube 走策略组2（美国）
         {"schemaVersion":1,"operations":[{"kind":"rule_set","source":"metacubex-geosite","name":"youtube","targetId":"target-1"}]}
+
+        用户：巴哈姆特走台湾和香港
+        {"schemaVersion":1,"operations":[{"kind":"group","id":"new-1","name":"巴哈姆特","type":"select","regions":["TW","HK"]},{"kind":"rule_set","source":"metacubex-geosite","name":"bahamut","targetId":"new-1"}]}
 
         用户：中国 IP 直连，屏蔽广告
         {"schemaVersion":1,"operations":[{"kind":"rule_set","source":"metacubex-geoip","name":"cn","targetId":"<DIRECT 的 id>"},{"kind":"rule_set","source":"metacubex-geosite","name":"category-ads-all","targetId":"<REJECT 的 id>"}]}

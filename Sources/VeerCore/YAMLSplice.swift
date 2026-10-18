@@ -167,4 +167,43 @@ enum YAMLSplice {
             }
         }
     }
+
+    // MARK: proxy-groups
+
+    /// Renders new groups as block sequence items (via the YAML serializer), indented to `indent`.
+    static func renderGroups(_ groups: [(name: String, type: String, members: [String])], indent: String) throws -> [String] {
+        let items: [Node] = groups.map { group in
+            .mapping(.init([
+                (Node(stringLiteral: "name"), .scalar(.init(group.name, Tag(.str), .any))),
+                (Node(stringLiteral: "type"), .scalar(.init(group.type, Tag(.str), .any))),
+                (Node(stringLiteral: "proxies"), .sequence(.init(group.members.map { .scalar(.init($0, Tag(.str), .any)) }, Tag(.seq), .block))),
+            ], Tag(.map), .block))
+        }
+        let yaml = ConfigImporter.readableUnicode(try Yams.serialize(node: .sequence(.init(items, Tag(.seq), .block)), indent: 2, width: -1, allowUnicode: true))
+        return yaml.split(separator: "\n", omittingEmptySubsequences: true).map { indent + $0 }
+    }
+
+    /// Appends groups to the end of `proxy-groups`, creating the key when needed.
+    static func addGroups(in lines: inout SourceLines, document: ConfigDocument, additions: [(name: String, type: String, members: [String])]) throws {
+        guard !additions.isEmpty else { return }
+        if let region = region(for: "proxy-groups", in: document, lines: lines) {
+            let inline = inlineValue(lines.lines[region.keyLine])
+            let body = lines.lines[(region.keyLine + 1)..<region.end].filter { !SourceLines.isTrivia($0) }
+            if inline.isEmpty, let first = body.first, first.trimmingCharacters(in: .whitespaces).hasPrefix("-") {
+                let indent = String(repeating: " ", count: SourceLines.indentation(first))
+                lines.lines.insert(contentsOf: try renderGroups(additions, indent: indent), at: region.end)
+            } else if (inline.isEmpty && body.isEmpty) || ["[]", "null", "~"].contains(inline) {
+                lines.lines.replaceSubrange(region.keyLine..<region.end, with: ["proxy-groups:"] + (try renderGroups(additions, indent: "  ")))
+            } else {
+                throw EditorError("proxy-groups 使用了单行（flow）格式，当前版本无法安全新建策略组。请改为多行格式后重试。")
+            }
+        } else {
+            let rendered = ["proxy-groups:"] + (try renderGroups(additions, indent: "  "))
+            if let rules = document.topLevelKeys.first(where: { $0.key == "rules" }) {
+                lines.lines.insert(contentsOf: rendered, at: rules.line)
+            } else {
+                lines.lines.append(contentsOf: rendered)
+            }
+        }
+    }
 }

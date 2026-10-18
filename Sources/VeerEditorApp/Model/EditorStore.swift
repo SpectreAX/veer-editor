@@ -374,9 +374,9 @@ final class EditorStore {
         session.turns.append(turn)
         session.updatedAt = .now
         current = session
-        let engine = engine, plan = EditPlan(operations: [.ruleSet(reference, targetId: targetID)])
+        let engine = engine, plan = EditPlan(operations: [.ruleSet(reference, targetId: targetID)]), regions = regions
         startTurn(sessionID: session.id, turnID: turn.id, draftText: draft.text) { progress in
-            try await engine.run(plan: plan, draft: draft, progress: progress)
+            try await engine.run(plan: plan, draft: draft, regions: regions, progress: progress)
         }
     }
 
@@ -426,8 +426,10 @@ final class EditorStore {
             let reply: String
             switch turn.outcome {
             case .proposal(let proposal):
-                let summary = proposal.items.filter { proposal.accepted.contains($0.id) }.map { item in
-                    "\(item.subject) → \(item.targetID.flatMap(anon.label(forTargetID:)) ?? "删除")"
+                let summary = proposal.items.filter { proposal.accepted.contains($0.id) }.map { item -> String in
+                    if let group = item.group { return "新建策略组“\(group.name)”（\(group.regionCounts.keys.sorted().joined(separator: "、"))）" }
+                    let target = item.targetID.flatMap(anon.label(forTargetID:)) ?? item.targetName ?? "删除"
+                    return "\(item.subject) → \(item.kind == .removeRule ? "删除" : target)"
                 }.joined(separator: "；")
                 reply = "\(proposal.status == .written ? "已写入草稿" : "已提出修改")：\(summary)"
             case .clarification(let question, _), .clarify(let question, _): reply = question
@@ -511,12 +513,12 @@ final class EditorStore {
         if accepted { proposal.accepted.insert(item) } else { proposal.accepted.remove(item) }
         let accepted = proposal.accepted
         mutateTurn(sessionID: session.id, turnID: turnID) { $0.proposal?.accepted = accepted }
-        let engine = engine, plan = proposal.plan, items = proposal.items, sessionID = session.id
+        let engine = engine, plan = proposal.plan, items = proposal.items, sessionID = session.id, regions = regions
         revalidating.insert(turnID)
         Task { [weak self] in
             defer { if self?.current?.turns.first(where: { $0.id == turnID })?.proposal?.accepted == accepted { self?.revalidating.remove(turnID) } }
             do {
-                let result = try await engine.reapply(plan: plan, accepted: accepted, draft: draft, previous: items)
+                let result = try await engine.reapply(plan: plan, accepted: accepted, draft: draft, regions: regions, previous: items)
                 self?.mutateTurn(sessionID: sessionID, turnID: turnID) { turn in
                     guard turn.proposal?.accepted == accepted else { return }
                     turn.proposal?.candidate = result.candidate

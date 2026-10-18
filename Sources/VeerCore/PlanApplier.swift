@@ -3,7 +3,16 @@ import Yams
 
 /// One reviewable change produced from one plan operation.
 public struct ChangeItem: Identifiable, Sendable, Codable, Hashable {
-    public enum Kind: String, Sendable, Codable { case route, removeRule, ruleSet }
+    public enum Kind: String, Sendable, Codable { case route, removeRule, ruleSet, group }
+
+    /// A proxy group the plan creates.
+    public struct GroupInfo: Sendable, Codable, Hashable {
+        public let name: String
+        public let type: String
+        public let members: [String]
+        /// Member count per region display name, for the review card.
+        public let regionCounts: [String: Int]
+    }
 
     public struct ProviderInfo: Sendable, Codable, Hashable {
         public let key: String
@@ -29,6 +38,7 @@ public struct ChangeItem: Identifiable, Sendable, Codable, Hashable {
     /// The rule written, or nil for a removal.
     public let rule: String?
     public var provider: ProviderInfo?
+    public var group: GroupInfo?
 }
 
 public struct ApplyResult: Sendable {
@@ -40,9 +50,47 @@ public struct ApplyResult: Sendable {
 public enum PlanApplier {
     /// Applies the accepted operations of `plan` to `base`. Throws with a user-facing reason when
     /// the plan is invalid or the result would change anything outside `rules`/new providers.
-    public static func apply(_ plan: EditPlan, to base: ConfigDocument, accepting accepted: Set<Int>? = nil,
+    public static func apply(_ plan: EditPlan, to base: ConfigDocument, regions: [String: Region] = [:], accepting accepted: Set<Int>? = nil,
                              verification: [String: RuleSetVerification] = [:]) throws -> ApplyResult {
         guard (1...32).contains(plan.operations.count) else { throw EditorError("修改计划需要 1 到 32 项操作。") }
+        func isAccepted(_ index: Int) -> Bool { accepted?.contains(index) ?? true }
+
+        // 0. New groups: members come from Veer's own region data (user corrections first), never
+        //    from model-supplied names. Each gets a name that does not collide with existing exits.
+        var takenNames = Set(base.targets.map(\.name))
+        var newGroups: [String: (index: Int, name: String)] = [:]
+        var groupItems: [Int: ChangeItem] = [:]
+        var groupAdditions: [(name: String, type: String, members: [String])] = []
+        func region(of name: String) -> Region { regions[name] ?? Region.infer(from: name) }
+        for (index, op) in plan.operations.enumerated() {
+            guard case let .group(spec) = op else { continue }
+            guard newGroups[spec.id] == nil else { throw EditorError("计划里有重复的新策略组 id：\(spec.id)") }
+            var members: [String] = []
+            for id in spec.members {
+                guard let target = base.target(id: id) else { throw EditorError("新策略组引用了当前配置中不存在的出口。") }
+                if !members.contains(target.name) { members.append(target.name) }
+            }
+            if !spec.regions.isEmpty {
+                let wanted = Set(spec.regions)
+                var regional = base.targets.filter { $0.kind == .node && wanted.contains(region(of: $0.name)) }.map(\.name)
+                // Provider-only configs have no static nodes; use the regional groups instead.
+                if regional.isEmpty { regional = base.targets.filter { $0.kind == .group && wanted.contains(region(of: $0.name)) }.map(\.name) }
+                guard !regional.isEmpty else {
+                    throw EditorError("当前配置里没有标记为\(spec.regions.map(\.displayName).joined(separator: "、"))的节点或策略组，无法新建“\(spec.name)”。可以在检查器的“出口”里更正地区。")
+                }
+                for name in regional where !members.contains(name) { members.append(name) }
+            }
+            var name = spec.name, suffix = 2
+            while takenNames.contains(name) { name = "\(spec.name) \(suffix)"; suffix += 1 }
+            takenNames.insert(name)
+            newGroups[spec.id] = (index, name)
+            var counts: [String: Int] = [:]
+            for member in members { counts[region(of: member) == .unknown ? "未指定地区" : region(of: member).displayName, default: 0] += 1 }
+            groupItems[index] = ChangeItem(id: index, kind: .group, subject: name, matchType: "", match: "", targetName: nil, targetID: spec.id,
+                                           replaced: [], rule: nil, provider: nil,
+                                           group: .init(name: name, type: spec.type, members: members, regionCounts: counts))
+            if isAccepted(index) { groupAdditions.append((name, spec.type, members)) }
+        }
 
         // 1. Resolve rule sets: reuse a provider with the same URL or reserve a free key.
         var existingProviders: [String: String?] = Dictionary(base.providers.map { ($0.key, $0.url) }, uniquingKeysWith: { first, _ in first })
@@ -65,6 +113,9 @@ public enum PlanApplier {
             case let .route(type, value, target): (matchType, match, targetID) = (type, value, target)
             case let .removeRule(type, value): (matchType, match, targetID) = (type, value, nil)
             case let .ruleSet(_, target): (matchType, match, targetID) = ("RULE-SET", specs[index]!.key, target)
+            case .group:
+                items.append(groupItems[index]!)
+                continue
             }
             if case .ruleSet = op {} else { try MatchValidator.validate(type: matchType, match: match) }
             let prefix = "\(matchType),\(match),".lowercased()
@@ -73,8 +124,15 @@ public enum PlanApplier {
 
             var target: Target?
             if let targetID {
-                guard let found = base.target(id: targetID) else { throw EditorError("AI 引用了当前配置中不存在的出口。") }
-                target = found
+                if let created = newGroups[targetID] {
+                    if isAccepted(index) && !isAccepted(created.index) {
+                        throw EditorError("“\(match)”指向新策略组“\(created.name)”，请同时接受新建该策略组。")
+                    }
+                    target = Target(id: targetID, name: created.name, kind: .group, type: nil)
+                } else {
+                    guard let found = base.target(id: targetID) else { throw EditorError("修改引用了当前配置中不存在的出口。") }
+                    target = found
+                }
             }
             var rule: String?
             if let target {
@@ -98,7 +156,7 @@ public enum PlanApplier {
                                     targetName: target?.name, targetID: targetID, replaced: replaced, rule: rule, provider: provider))
         }
 
-        let active = items.filter { accepted?.contains($0.id) ?? true }
+        let active = items.filter { isAccepted($0.id) && $0.kind != .group }
 
         // 3. Add new rule providers used by accepted items, then re-read the intermediate text.
         var additions: [(key: String, fields: [(String, String)])] = []
@@ -109,7 +167,12 @@ public enum PlanApplier {
         }
         var lines = SourceLines(base.text)
         try YAMLSplice.addProviders(in: &lines, document: base, additions: additions)
-        let intermediate = additions.isEmpty ? base : try ConfigDocument.parse(lines.text)
+        var intermediate = additions.isEmpty ? base : try ConfigDocument.parse(lines.text)
+        if !groupAdditions.isEmpty {
+            lines = SourceLines(intermediate.text)
+            try YAMLSplice.addGroups(in: &lines, document: intermediate, additions: groupAdditions)
+            intermediate = try ConfigDocument.parse(lines.text)
+        }
         lines = SourceLines(intermediate.text)
 
         // 4. Rules: accepted additions go to the top in plan order, then every untouched original.
@@ -127,11 +190,13 @@ public enum PlanApplier {
         let candidate = lines.text
 
         // 5. Prove the edit stayed inside its boundary.
-        try verify(original: base, candidate: candidate, expectedRules: final.map(\.rule), addedProviders: additions.map(\.key))
+        try verify(original: base, candidate: candidate, expectedRules: final.map(\.rule), addedProviders: additions.map(\.key),
+                   addedGroups: groupAdditions)
         return ApplyResult(candidate: candidate, items: items, changed: candidate != base.text)
     }
 
-    static func verify(original: ConfigDocument, candidate: String, expectedRules: [String], addedProviders: [String]) throws {
+    static func verify(original: ConfigDocument, candidate: String, expectedRules: [String], addedProviders: [String],
+                       addedGroups: [(name: String, type: String, members: [String])] = []) throws {
         let reread: ConfigDocument
         do { reread = try ConfigDocument.parse(candidate) } catch {
             throw EditorError("生成的配置无法重新解析，已拒绝：\((error as? EditorError)?.message ?? "")")
@@ -140,7 +205,7 @@ public enum PlanApplier {
         guard let before = try compose(yaml: original.text)?.mapping, let after = try compose(yaml: candidate)?.mapping else {
             throw EditorError("生成的配置无法重新解析，已拒绝。")
         }
-        let editable: Set<String> = ["rules", "rule-providers"]
+        let editable: Set<String> = ["rules", "rule-providers", "proxy-groups"]
         let beforeKeys = Array(before.keys).compactMap(\.string).filter { !editable.contains($0) }
         let afterKeys = Array(after.keys).compactMap(\.string).filter { !editable.contains($0) }
         guard beforeKeys == afterKeys, beforeKeys.allSatisfy({ before[$0] == after[$0] }) else {
@@ -153,5 +218,18 @@ public enum PlanApplier {
         }
         let added = (newProviders.map { Array($0.keys).compactMap(\.string) } ?? []).filter { key in !(oldProviders?.keys.contains { $0.string == key } ?? false) }
         guard Set(added) == Set(addedProviders) else { throw EditorError("新增的规则集与计划不一致，已拒绝生成。") }
+
+        // proxy-groups: every existing group unchanged and in place; only the planned groups appended.
+        let oldGroups = before["proxy-groups"]?.sequence.map(Array.init) ?? []
+        let newGroups = after["proxy-groups"]?.sequence.map(Array.init) ?? []
+        guard newGroups.count == oldGroups.count + addedGroups.count, Array(newGroups.prefix(oldGroups.count)) == oldGroups else {
+            throw EditorError("修改会改变已有的策略组，已拒绝生成。")
+        }
+        for (node, expected) in zip(newGroups.dropFirst(oldGroups.count), addedGroups) {
+            guard let map = node.mapping, map["name"]?.string == expected.name, map["type"]?.string == expected.type,
+                  map["proxies"]?.sequence?.compactMap(\.string) == expected.members else {
+                throw EditorError("新建的策略组与计划不一致，已拒绝生成。")
+            }
+        }
     }
 }

@@ -221,7 +221,11 @@ struct LocalParserTests {
         #expect(try parse("节点太卡了换一个") == .outOfScope(LocalIntentParser.outOfScopeMessage))
         guard case .clarification = try parse("Netflix 走德国") else { Issue.record("expected clarification"); return }
         #expect(throws: EditorError.self) { try parse("Netflix 不要走日本") }
-        #expect(throws: EditorError.self) { try parse("Netflix 走日本和美国") }
+        // Several regions for one service now create a group named after it.
+        guard case .plan(let multi) = try parse("Netflix 走日本和美国"), case .group(let group) = multi.operations.first else {
+            Issue.record("expected a new group"); return
+        }
+        #expect(group.name == "Netflix" && group.regions == [.jp, .us])
         #expect(throws: EditorError.self) { try parse("帮我优化一下") }
     }
 }

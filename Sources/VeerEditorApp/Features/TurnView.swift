@@ -307,8 +307,14 @@ struct ChangeRow: View {
 
     @ViewBuilder private var title: some View {
         HStack(spacing: Spacing.sm) {
+            if item.kind == .group {
+                Image(systemName: "square.stack.3d.up.badge.a").foregroundStyle(Color.veerAccent)
+                Text("新建策略组").foregroundStyle(.secondary)
+            }
             Text(item.subject).fontWeight(.medium)
-            if item.kind == .removeRule {
+            if item.kind == .group {
+                Tag(text: item.group?.type ?? "select")
+            } else if item.kind == .removeRule {
                 Text("删除规则").foregroundStyle(.secondary)
             } else {
                 Image(systemName: "arrow.right").imageScale(.small).foregroundStyle(.secondary)
@@ -326,6 +332,10 @@ struct ChangeRow: View {
     }
 
     private var detail: String {
+        if let group = item.group {
+            let byRegion = group.regionCounts.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: "、")
+            return "包含 \(group.members.count) 个出口：\(byRegion) · 追加到 proxy-groups 末尾，不改动已有策略组"
+        }
         if let provider = item.provider {
             return "规则集 \(provider.sourceLabel) · \(provider.verification.label)"
         }
@@ -333,7 +343,11 @@ struct ChangeRow: View {
     }
 
     private var accessibilityText: String {
-        item.kind == .removeRule ? "删除 \(item.subject) 的规则" : "\(item.subject) 到 \(targetText)"
+        switch item.kind {
+        case .group: "新建策略组 \(item.subject)，包含 \(item.group?.members.count ?? 0) 个出口"
+        case .removeRule: "删除 \(item.subject) 的规则"
+        default: "\(item.subject) 到 \(targetText)"
+        }
     }
 }
 
