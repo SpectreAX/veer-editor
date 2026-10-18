@@ -180,22 +180,83 @@ public struct SubscriptionResponse: Sendable {
     }
 }
 
-/// Downloads a subscription over HTTPS without following redirects (max 2 MB).
+/// Downloads a subscription without following redirects (max 2 MB). HTTPS is required, except
+/// that plain HTTP is allowed to loopback and private LAN hosts, where self-hosted subscription
+/// managers such as Sub-Store usually run.
 public struct SubscriptionFetcher: Sendable {
     public init() {}
 
+    /// Checks the link and returns the URL to fetch; Sub-Store downloads get `target=mihomo`.
     public static func validate(_ raw: String) throws -> URL {
         guard let components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-              components.scheme == "https", components.host != nil, let url = components.url else {
-            throw EditorError("订阅链接必须是 HTTPS 地址。")
+              let scheme = components.scheme?.lowercased(), let host = components.host, !host.isEmpty,
+              scheme == "https" || (scheme == "http" && isLocalNetwork(host: host)), let url = components.url else {
+            throw EditorError("订阅链接必须是 HTTPS 地址；HTTP 只能用于本机或局域网地址（例如自建的 Sub-Store）。")
         }
-        return url
+        return withSubStoreTarget(url)
     }
 
-    /// True when the input is a single link rather than pasted content.
+    /// True when the input is a single link rather than pasted content. An `http://` line counts
+    /// only when it has a path or query, so a bare HTTP proxy share link stays content.
     public static func looksLikeLink(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.contains("\n") && !trimmed.contains(" ") && trimmed.lowercased().hasPrefix("https://")
+        guard !trimmed.contains("\n"), !trimmed.contains(" ") else { return false }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("https://") { return true }
+        guard lower.hasPrefix("http://"), let components = URLComponents(string: trimmed) else { return false }
+        return !["", "/"].contains(components.path) || components.query != nil
+    }
+
+    /// Loopback (localhost, 127/8, ::1), RFC 1918 ranges (10/8, 172.16/12, 192.168/16) and `.local` names.
+    public static func isLocalNetwork(host raw: String) -> Bool {
+        let host = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if host == "localhost" || host == "::1" { return true }
+        if host.hasSuffix(".local"), host.count > ".local".count { return true }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        let octets = parts.compactMap { part -> Int? in
+            guard (1...3).contains(part.count), part.allSatisfy(\.isASCII), part.allSatisfy(\.isNumber), let value = Int(part), value <= 255 else { return nil }
+            return value
+        }
+        guard octets.count == 4 else { return false }
+        switch (octets[0], octets[1]) {
+        case (127, _), (10, _), (192, 168): return true
+        case (172, 16...31): return true
+        default: return false
+        }
+    }
+
+    /// A Sub-Store download link: `/download/<name>` or `/download/collection/<name>`, optionally
+    /// behind one backend path prefix and followed by a `/<target>` segment.
+    public struct SubStoreDownload: Sendable, Equatable {
+        public let name: String
+        public let isCollection: Bool
+        /// From `?target=` or the path; nil when the link names none.
+        public let target: String?
+    }
+
+    public static func subStoreDownload(_ url: URL) -> SubStoreDownload? {
+        let segments = url.pathComponents.filter { $0 != "/" }
+        guard let index = segments.firstIndex(of: "download"), index <= 1 else { return nil }
+        var rest = segments[(index + 1)...]
+        let isCollection = rest.count >= 2 && rest.first == "collection"
+        if isCollection { rest = rest.dropFirst() }
+        guard let name = rest.first, !name.isEmpty, rest.count <= 2 else { return nil }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first { $0.name.lowercased() == "target" }?.value
+        let target = query.flatMap { $0.isEmpty ? nil : $0 } ?? (rest.count == 2 ? rest.last : nil)
+        return SubStoreDownload(name: name, isCollection: isCollection, target: target)
+    }
+
+    /// Adds `target=mihomo` to a Sub-Store download that names no target, so it returns Mihomo YAML.
+    public static func withSubStoreTarget(_ url: URL) -> URL {
+        guard let download = subStoreDownload(url), download.target == nil,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        // Edit the encoded query directly so other parameters (tokens with `%2B` etc.) keep their bytes.
+        let kept = (components.percentEncodedQuery ?? "").split(separator: "&")
+            .filter { !$0.lowercased().hasPrefix("target=") && $0.lowercased() != "target" }
+        components.percentEncodedQuery = (kept + ["target=mihomo"]).joined(separator: "&")
+        return components.url ?? url
     }
 
     public func fetch(_ url: URL) async throws -> SubscriptionResponse {

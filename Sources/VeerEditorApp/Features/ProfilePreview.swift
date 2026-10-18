@@ -10,6 +10,8 @@ struct ProfileSummaryView: View {
     let usage: SubscriptionUsage?
     let note: String?
     let analysis: ProfileAnalysis?
+    /// Node clean-up switches, shown only while previewing a generated config.
+    var cleanup: ImportCleanupControls?
 
     var body: some View {
         ScrollView {
@@ -32,6 +34,7 @@ struct ProfileSummaryView: View {
                         .padding(Spacing.md)
                         .background(Color.statusInfo.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
                 }
+                if let cleanup { cleanup }
                 if let analysis, !analysis.isEmpty {
                     StatTiles(analysis: analysis)
                     ViewThatFits(in: .horizontal) {
@@ -63,11 +66,20 @@ struct ProfilePreviewView: View {
     @Environment(EditorStore.self) private var store
     let pending: EditorStore.PendingImport
 
+    /// "Sub-Store · mihomo · 127.0.0.1" for a Sub-Store download, otherwise source and format.
+    private var subtitle: String {
+        if let link = pending.link, let download = SubscriptionFetcher.subStoreDownload(link) {
+            return ["Sub-Store", download.target, link.host].compactMap { $0 }.joined(separator: " · ")
+        }
+        return "\(pending.source.label) · \(pending.result.format.label)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ProfileSummaryView(title: pending.title, subtitle: "\(pending.source.label) · \(pending.result.format.label)",
+            ProfileSummaryView(title: pending.title, subtitle: subtitle,
                                timestamp: "解析于 \(pending.parsedAt.formatted(date: .numeric, time: .standard))",
-                               usage: pending.usage, note: pending.result.note, analysis: pending.analysis)
+                               usage: pending.usage, note: pending.result.note, analysis: pending.analysis,
+                               cleanup: pending.result.format == .mihomoYAML ? nil : ImportCleanupControls(options: pending.options))
             Divider()
             HStack(spacing: Spacing.md) {
                 Label("文件解析完成", systemImage: "checkmark.circle").foregroundStyle(.secondary).font(.callout)
@@ -85,6 +97,33 @@ struct ProfilePreviewView: View {
             .padding(.vertical, Spacing.md)
         }
         .frame(width: 820, height: 760)
+    }
+}
+
+/// Switches for the clean-up Veer applies to configs it generates from subscriptions.
+struct ImportCleanupControls: View {
+    @Environment(EditorStore.self) private var store
+    let options: ImportOptions
+
+    var body: some View {
+        HStack(spacing: Spacing.lg) {
+            Text("节点清理").font(.callout.weight(.medium))
+            toggle("移除信息节点", \.removeInfoNodes, help: "去掉名称是剩余流量、到期时间或官网等提示的假节点；用量已从订阅响应头读取")
+            toggle("移除重复节点", \.removeDuplicates, help: "设置与前面某个节点完全相同（仅名称不同）的节点只保留第一个")
+            toggle("添加地区旗帜", \.addRegionFlags, help: "在能识别地区、但还没有旗帜的节点名称前加上国旗")
+            Spacer(minLength: 0)
+        }
+        .toggleStyle(.checkbox)
+        .font(.callout)
+    }
+
+    private func toggle(_ title: String, _ key: WritableKeyPath<ImportOptions, Bool>, help: String) -> some View {
+        Toggle(title, isOn: Binding(get: { options[keyPath: key] }, set: { value in
+            var changed = options
+            changed[keyPath: key] = value
+            store.setPendingImportOptions(changed)
+        }))
+        .help(help)
     }
 }
 

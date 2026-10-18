@@ -171,7 +171,7 @@ final class EditorStore {
 
     /// One parsed import waiting for the user's confirmation in the preview panel.
     struct PendingImport: Identifiable {
-        let id = UUID()
+        var id = UUID()
         var title: String
         var source: Session.Source
         var result: ConfigImporter.Result
@@ -180,6 +180,10 @@ final class EditorStore {
         /// Kept in memory only, for "刷新"; never persisted.
         var link: URL?
         var parsedAt = Date()
+        /// Node clean-up for generated configs; changing it re-parses `rawText`.
+        var options = ImportOptions()
+        /// The downloaded or pasted content, kept in memory until the import is confirmed.
+        var rawText = ""
     }
 
     enum ImportStage {
@@ -203,7 +207,7 @@ final class EditorStore {
         importStage = .input
     }
 
-    /// Parses whatever the user typed or pasted: a single HTTPS link is fetched as a subscription,
+    /// Parses whatever the user typed or pasted: a single subscription link is fetched,
     /// anything else is treated as configuration content.
     func submitImportInput() {
         let input = importInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -239,18 +243,32 @@ final class EditorStore {
         }
     }
 
-    func prepareImport(text: String, title: String, source: Session.Source, usage: SubscriptionUsage? = nil, link: URL? = nil) {
+    func prepareImport(text: String, title: String, source: Session.Source, usage: SubscriptionUsage? = nil, link: URL? = nil,
+                       options: ImportOptions = .init()) {
         do {
-            let result = try ConfigImporter.normalize(text)
+            let result = try ConfigImporter.normalize(text, options: options)
             _ = try ConfigDocument.parse(result.text)
             importStage = .preview(PendingImport(title: title, source: source, result: result,
-                                                 analysis: ProfileAnalysis.analyze(result.text), usage: usage, link: link))
+                                                 analysis: ProfileAnalysis.analyze(result.text), usage: usage, link: link,
+                                                 options: options, rawText: text))
         } catch {
             importStage = .failed(message(for: error))
         }
     }
 
-    func fetchSubscription(_ url: URL) {
+    /// Re-parses the previewed content with changed clean-up options; the preview stays in place.
+    func setPendingImportOptions(_ options: ImportOptions) {
+        guard case .preview(let pending) = importStage, pending.options != options else { return }
+        prepareImport(text: pending.rawText, title: pending.title, source: pending.source, usage: pending.usage,
+                      link: pending.link, options: options)
+        if case .preview(var updated) = importStage {
+            updated.id = pending.id
+            updated.parsedAt = pending.parsedAt
+            importStage = .preview(updated)
+        }
+    }
+
+    func fetchSubscription(_ url: URL, options: ImportOptions = .init()) {
         importTask?.cancel()
         importStage = .loading("正在下载订阅…")
         showingImport = true
@@ -259,8 +277,9 @@ final class EditorStore {
                 let response = try await SubscriptionFetcher().fetch(url)
                 guard !Task.isCancelled else { return }
                 let host = url.host ?? "订阅"
-                self?.prepareImport(text: response.text, title: response.title ?? host, source: .subscription(host: host),
-                                    usage: response.usage, link: url)
+                let name = response.title ?? SubscriptionFetcher.subStoreDownload(url)?.name ?? host
+                self?.prepareImport(text: response.text, title: name, source: .subscription(host: host),
+                                    usage: response.usage, link: url, options: options)
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.importStage = .failed(self?.message(for: error) ?? "")
@@ -269,7 +288,7 @@ final class EditorStore {
     }
 
     func refreshPendingImport() {
-        if case .preview(let pending) = importStage, let link = pending.link { fetchSubscription(link) }
+        if case .preview(let pending) = importStage, let link = pending.link { fetchSubscription(link, options: pending.options) }
     }
 
     /// Creates the session from the previewed import.

@@ -34,10 +34,13 @@ struct ImportInputView: View {
     @State private var dropTargeted = false
     @FocusState private var focused: Bool
 
-    private var detected: String? {
+    private var detected: (text: String, ok: Bool)? {
         let input = store.importInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return nil }
-        return SubscriptionFetcher.looksLikeLink(input) ? "识别为订阅链接，将下载并解析" : "识别为配置内容，将在本机解析"
+        guard SubscriptionFetcher.looksLikeLink(input) else { return ("识别为配置内容，将在本机解析", true) }
+        guard let url = try? SubscriptionFetcher.validate(input) else { return ("HTTP 链接只能指向本机或局域网地址，其他订阅请使用 HTTPS", false) }
+        return SubscriptionFetcher.subStoreDownload(url) == nil ? ("识别为订阅链接，将下载并解析", true)
+            : ("识别为 Sub-Store 下载链接，将以 mihomo 格式下载并解析", true)
     }
 
     var body: some View {
@@ -45,7 +48,7 @@ struct ImportInputView: View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("导入配置").font(.title3.weight(.semibold))
-                Text("选择文件、粘贴订阅链接，或直接粘贴配置内容。Mihomo / Clash YAML、Base64 订阅和分享链接都会自动识别。")
+                Text("选择文件、粘贴订阅链接，或直接粘贴配置内容。Mihomo / Clash YAML、Base64 订阅和分享链接都会自动识别。订阅链接需为 HTTPS；本机或局域网的 Sub-Store 等服务可用 HTTP。")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             ZStack(alignment: .topLeading) {
@@ -55,7 +58,7 @@ struct ImportInputView: View {
                     .focused($focused)
                     .padding(Spacing.sm)
                 if store.importInput.isEmpty {
-                    Text("https://…  或粘贴配置内容")
+                    Text("https://…、http://127.0.0.1:3000/download/…  或粘贴配置内容")
                         .font(Typography.code).foregroundStyle(.tertiary)
                         .padding(.horizontal, Spacing.sm + Spacing.xs).padding(.vertical, Spacing.sm)
                         .allowsHitTesting(false)
@@ -75,8 +78,9 @@ struct ImportInputView: View {
                 return true
             }
             HStack(spacing: Spacing.sm) {
-                Image(systemName: detected == nil ? "doc.on.clipboard" : "checkmark.circle").foregroundStyle(detected == nil ? Color.secondary : Color.veerAccent)
-                Text(detected ?? "也可以把文件拖到上面的输入框").foregroundStyle(.secondary)
+                Image(systemName: detected == nil ? "doc.on.clipboard" : detected?.ok == false ? "exclamationmark.triangle" : "checkmark.circle")
+                    .foregroundStyle(detected == nil ? Color.secondary : detected?.ok == false ? Color.statusWarning : Color.veerAccent)
+                Text(detected?.text ?? "也可以把文件拖到上面的输入框").foregroundStyle(.secondary)
             }
             .font(.caption)
             HStack {

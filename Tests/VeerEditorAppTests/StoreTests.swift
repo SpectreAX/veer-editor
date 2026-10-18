@@ -165,6 +165,22 @@ struct StoreTests {
         #expect(store.sessions.count == before + 1 && store.current?.exitsConfirmed == false)
     }
 
+    @Test func cleanupOptionsReparseThePreviewInPlace() throws {
+        let store = makeStore()
+        let links = ["trojan://pw@info.example.invalid:443#剩余流量：12 GB", "trojan://pw@jp.example.invalid:443#JP 01",
+                     "trojan://pw@jp.example.invalid:443#JP 01 copy"].joined(separator: "\n")
+        store.openImport(prefill: links)
+        store.submitImportInput()
+        guard case .preview(let first) = store.importStage else { Issue.record("expected preview"); return }
+        #expect(first.result.nodeCount == 1 && first.result.note?.contains("已移除 1 个信息节点") == true)
+        store.setPendingImportOptions(ImportOptions(removeInfoNodes: false, removeDuplicates: true, addRegionFlags: true))
+        guard case .preview(let second) = store.importStage else { Issue.record("expected preview"); return }
+        #expect(second.id == first.id && second.options.addRegionFlags && second.result.nodeCount == 2)
+        store.confirmPendingImport()
+        #expect(store.draft?.targets.map(\.name).contains("🇯🇵 JP 01") == true)
+        #expect(store.current?.importNote?.contains("为 1 个节点添加了地区旗帜") == true)
+    }
+
     @Test func linksAreRecognizedAndValidated() {
         let store = makeStore()
         store.openImport(prefill: "http://sub.example.invalid/x")

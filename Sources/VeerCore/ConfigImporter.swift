@@ -23,6 +23,7 @@ public enum ConfigImporter {
         public let format: Format
         public let nodeCount: Int
         public let skipped: [String: Int]
+        public var cleanup = CleanupReport()
 
         /// Explains a conversion to the user; nil when the input was already a full config.
         public var note: String? {
@@ -32,6 +33,7 @@ public enum ConfigImporter {
                 let detail = skipped.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value) 个" }.joined(separator: "、")
                 text += "无法转换、已跳过：\(detail)。"
             }
+            if let summary = cleanup.summary { text += summary }
             return text + "导出的是生成后的完整配置，不是原始订阅内容。"
         }
     }
@@ -39,7 +41,7 @@ public enum ConfigImporter {
     public static let selectGroup = "节点选择"
     public static let autoGroup = "自动选择"
 
-    public static func normalize(_ raw: String) throws -> Result {
+    public static func normalize(_ raw: String, options: ImportOptions = .init()) throws -> Result {
         var text = raw
         if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -49,18 +51,18 @@ public enum ConfigImporter {
             throw EditorError("这是一个网页，不是配置。订阅链接可能已失效、需要登录，或返回了错误页面。")
         }
 
-        if let yaml = try yamlResult(text) { return yaml }
+        if let yaml = try yamlResult(text, options: options) { return yaml }
 
         if let decoded = ShareLinkParser.base64String(trimmed), decoded.contains("://") || decoded.contains(":") {
-            if decoded.contains("://") { return try fromLinks(decoded, format: .base64Links) }
-            if let yaml = try? yamlResult(decoded) { return yaml }
+            if decoded.contains("://") { return try fromLinks(decoded, format: .base64Links, options: options) }
+            if let yaml = try? yamlResult(decoded, options: options) { return yaml }
         }
-        if trimmed.contains("://") { return try fromLinks(trimmed, format: .plainLinks) }
+        if trimmed.contains("://") { return try fromLinks(trimmed, format: .plainLinks, options: options) }
         throw EditorError("无法识别这份内容。Veer 支持 Mihomo / Clash YAML 配置、YAML 节点列表、Base64 订阅和分享链接列表（ss、ssr、vmess、vless、trojan、hysteria、hysteria2、tuic、socks5、http、anytls）。")
     }
 
     /// nil when the text is not YAML that Veer can use (a scalar, or unparsable).
-    static func yamlResult(_ text: String) throws -> Result? {
+    static func yamlResult(_ text: String, options: ImportOptions = .init()) throws -> Result? {
         guard let node = try? compose(yaml: text) else { return nil }
         if let mapping = node.mapping {
             let keys = Set(mapping.keys.compactMap(\.string))
@@ -68,29 +70,29 @@ public enum ConfigImporter {
                 throw EditorError("这是 sing-box 配置。Veer 目前只编辑 Mihomo 配置，请导入 Mihomo / Clash 格式的订阅。")
             }
             if keys == ["proxies"], let list = mapping["proxies"]?.sequence {
-                return try fromProxyNodes(Array(list), format: .proxyListYAML)
+                return try fromProxyNodes(Array(list), format: .proxyListYAML, options: options)
             }
             return Result(text: text, format: .mihomoYAML, nodeCount: mapping["proxies"]?.sequence?.count ?? 0, skipped: [:])
         }
         if let sequence = node.sequence, !sequence.isEmpty,
            sequence.allSatisfy({ $0.mapping?["name"] != nil && $0.mapping?["type"] != nil }) {
-            return try fromProxyNodes(Array(sequence), format: .proxyListYAML)
+            return try fromProxyNodes(Array(sequence), format: .proxyListYAML, options: options)
         }
         return nil
     }
 
-    static func fromLinks(_ text: String, format: Format) throws -> Result {
+    static func fromLinks(_ text: String, format: Format, options: ImportOptions = .init()) throws -> Result {
         let parsed = ShareLinkParser.parse(text)
         guard !parsed.proxies.isEmpty else {
             let schemes = parsed.skipped.keys.sorted().joined(separator: "、")
             throw EditorError(schemes.isEmpty ? "没有找到可以识别的分享链接。" : "没有可以转换的节点：\(schemes) 链接格式无法识别或不受支持。")
         }
         let proxies = parsed.proxies.map { proxy in proxy.map { ($0.0, $0.1) } }
-        return try build(proxies: proxies.map { .map($0) }, format: format, skipped: parsed.skipped)
+        return try build(proxies: proxies.map { .map($0) }, format: format, skipped: parsed.skipped, options: options)
     }
 
-    static func fromProxyNodes(_ nodes: [Node], format: Format) throws -> Result {
-        try build(proxies: nodes.compactMap(value(from:)), format: format, skipped: [:])
+    static func fromProxyNodes(_ nodes: [Node], format: Format, options: ImportOptions = .init()) throws -> Result {
+        try build(proxies: nodes.compactMap(value(from:)), format: format, skipped: [:], options: options)
     }
 
     static func value(from node: Node) -> YAMLValue? {
@@ -110,16 +112,22 @@ public enum ConfigImporter {
 
     // MARK: Generated configuration
 
-    static func build(proxies raw: [YAMLValue], format: Format, skipped: [String: Int]) throws -> Result {
+    static func build(proxies raw: [YAMLValue], format: Format, skipped: [String: Int], options: ImportOptions = .init()) throws -> Result {
+        let named: [(String, YAMLValue)] = raw.compactMap { proxy in
+            guard case .map = proxy, proxy["type"] != nil, proxy["server"] != nil else { return nil }
+            let name = (proxy["name"]?.stringValue ?? "").replacingOccurrences(of: ",", with: "，")
+                .components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            return (name.isEmpty ? "\(proxy["server"]?.stringValue ?? "node"):\(portText(proxy["port"]))" : name, proxy)
+        }
+        let (cleaned, report) = try NodeCleanup.apply(named, options: options)
+
         var names = Set(ConfigDocument.builtinPolicies).union([selectGroup, autoGroup])
         var counters: [String: Int] = [:]
         var proxies: [YAMLValue] = []
         var proxyNames: [String] = []
-        for proxy in raw {
-            guard case .map(var pairs) = proxy, proxy["type"] != nil, proxy["server"] != nil else { continue }
-            var name = (proxy["name"]?.stringValue ?? "").replacingOccurrences(of: ",", with: "，")
-                .components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-            if name.isEmpty { name = "\(proxy["server"]?.stringValue ?? "node"):\(portText(proxy["port"]))" }
+        for (cleanName, proxy) in cleaned {
+            guard case .map(var pairs) = proxy else { continue }
+            var name = cleanName
             // Same suffix style as Mihomo: name, name-01, name-02 …
             let base = name
             while names.contains(name) {
@@ -165,7 +173,7 @@ public enum ConfigImporter {
         ])
         let body = readableUnicode(try Yams.serialize(node: node(config), indent: 2, width: -1, allowUnicode: true))
         let header = "# 由 Veer 根据\(format.label)生成（\(proxyNames.count) 个节点）。\n"
-        return Result(text: header + body, format: format, nodeCount: proxyNames.count, skipped: skipped)
+        return Result(text: header + body, format: format, nodeCount: proxyNames.count, skipped: skipped, cleanup: report)
     }
 
     /// libyaml writes characters outside the BMP (flag emoji) as `\UXXXXXXXX` escapes. Put the

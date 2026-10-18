@@ -23,5 +23,9 @@ struct RealValidatorTests {
         let result = try ConfigImporter.normalize(Links.all)
         let check = await validator.validate(result.text)
         #expect(check.status == .passed, "\(check.message) \(check.detail ?? "")")
+        let cleaned = try ConfigImporter.normalize(NodeCleanupTests.subscription, options: .init(addRegionFlags: true))
+        #expect(!cleaned.cleanup.isEmpty)
+        let cleanedCheck = await validator.validate(cleaned.text)
+        #expect(cleanedCheck.status == .passed, "\(cleanedCheck.message) \(cleanedCheck.detail ?? "")")
     }
 }

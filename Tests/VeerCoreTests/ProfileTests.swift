@@ -22,6 +22,56 @@ struct SubscriptionMetadataTests {
     }
 }
 
+struct SubscriptionLinkTests {
+    @Test func httpIsAllowedOnlyForLoopbackAndPrivateHosts() throws {
+        for allowed in ["http://127.0.0.1:3000/download/sub", "http://localhost:3000/download/sub", "http://[::1]:3000/download/sub",
+                        "http://127.8.9.1/x", "http://10.0.0.5/x", "http://172.16.0.1/x", "http://172.31.255.255/x",
+                        "http://192.168.1.10:3001/x", "http://nas.local/x", "HTTP://192.168.1.10/x", "https://sub.example.invalid/api?token=1"] {
+            #expect((try? SubscriptionFetcher.validate(allowed)) != nil, "\(allowed)")
+        }
+        for rejected in ["http://sub.example.invalid/x", "http://8.8.8.8/x", "http://172.32.0.1/x", "http://172.15.0.1/x",
+                         "http://192.169.1.1/x", "http://10.0.0.1.example.com/x", "http://localhost.example.com/x",
+                         "http://.local/x", "http://10.1/x", "http://256.0.0.1/x", "http://0x7f.0.0.1/x", "http://[::2]/x",
+                         "ftp://127.0.0.1/x", "file:///etc/hosts", "nonsense"] {
+            #expect(throws: EditorError.self, "\(rejected)") { try SubscriptionFetcher.validate(rejected) }
+        }
+    }
+
+    @Test func httpLinksNeedAPathSoProxyShareLinksStayContent() {
+        #expect(SubscriptionFetcher.looksLikeLink("http://127.0.0.1:3000/download/sub"))
+        #expect(SubscriptionFetcher.looksLikeLink("http://sub.example.invalid/api?token=1"))
+        #expect(!SubscriptionFetcher.looksLikeLink("http://192.168.1.2:7890#LAN"))
+        #expect(!SubscriptionFetcher.looksLikeLink("http://user:pass@1.2.3.4:8080/"))
+    }
+
+    @Test func subStoreDownloadsGetTheMihomoTarget() throws {
+        #expect(try SubscriptionFetcher.validate("http://127.0.0.1:3000/download/my-sub").absoluteString
+                == "http://127.0.0.1:3000/download/my-sub?target=mihomo")
+        #expect(try SubscriptionFetcher.validate("http://192.168.1.2:3000/download/collection/all?ua=x%2By").absoluteString
+                == "http://192.168.1.2:3000/download/collection/all?ua=x%2By&target=mihomo")
+        #expect(try SubscriptionFetcher.validate("http://127.0.0.1:3000/download/sub?target=").absoluteString
+                == "http://127.0.0.1:3000/download/sub?target=mihomo")
+        // Behind a backend path prefix.
+        #expect(try SubscriptionFetcher.validate("https://sub.example.invalid/secret/download/sub").absoluteString
+                == "https://sub.example.invalid/secret/download/sub?target=mihomo")
+        // A target already chosen, in the query or the path, is kept.
+        for kept in ["http://127.0.0.1:3000/download/sub?target=ClashMeta", "http://127.0.0.1:3000/download/sub/ClashMeta",
+                     "https://example.invalid/files/download/a/b/c.yaml", "https://example.invalid/a/b/download/sub",
+                     "https://example.invalid/api/v1/client/subscribe?token=1"] {
+            #expect(try SubscriptionFetcher.validate(kept).absoluteString == kept)
+        }
+    }
+
+    @Test func subStoreNamesComeFromThePath() throws {
+        let single = try #require(SubscriptionFetcher.subStoreDownload(URL(string: "http://127.0.0.1:3000/download/%E6%9C%BA%E5%9C%BA?target=mihomo")!))
+        #expect(single == .init(name: "机场", isCollection: false, target: "mihomo"))
+        let collection = try #require(SubscriptionFetcher.subStoreDownload(URL(string: "http://127.0.0.1:3000/download/collection/all/ClashMeta")!))
+        #expect(collection == .init(name: "all", isCollection: true, target: "ClashMeta"))
+        #expect(SubscriptionFetcher.subStoreDownload(URL(string: "http://127.0.0.1:3000/download/")!) == nil)
+        #expect(SubscriptionFetcher.subStoreDownload(URL(string: "https://sub.example.invalid/api/v1/client/subscribe")!) == nil)
+    }
+}
+
 struct ProfileAnalysisTests {
     @Test func summarizesTheSample() throws {
         let analysis = try #require(ProfileAnalysis.analyze(SampleConfig.text))

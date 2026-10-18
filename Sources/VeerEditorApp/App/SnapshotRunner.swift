@@ -144,6 +144,9 @@ enum SnapshotRunner {
             default: demo.append("hysteria2://auth@n\(i).example.invalid:443?sni=n\(i).example.invalid#\(name) Hy2")
             }
         }
+        // Notices and a repeated node, removed by the default clean-up.
+        demo.insert(contentsOf: ["trojan://pw@info.example.invalid:443#剩余流量：162.4 GB", "trojan://pw@info.example.invalid:443#套餐到期：2026-12-31"], at: 0)
+        demo.append(demo[2].replacingOccurrences(of: "#", with: "#备用 "))
         store.prepareImport(text: Data(demo.joined(separator: "\n").utf8).base64EncodedString(), title: "TAG_Demo_1018.yaml",
                             source: .subscription(host: "sub.example.invalid"),
                             usage: SubscriptionUsage(upload: 3_221_225_472, download: 41_875_931_136, total: 214_748_364_800, expire: Date(timeIntervalSince1970: 1_798_761_600)))
