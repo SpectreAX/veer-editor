@@ -58,19 +58,29 @@ final class EditorStore {
     var composerText = ""
     var composerFocusToken = 0
 
-    var settings: AISettings { didSet { saveSettings() } }
-    var useAI: Bool { didSet { UserDefaults.standard.set(useAI, forKey: "useAI") } }
-    var validateBeforeExport: Bool { didSet { UserDefaults.standard.set(validateBeforeExport, forKey: "validateBeforeExport") } }
-    /// Use the provider's reasoning model (slower, better at complex instructions).
-    var deepThinking: Bool { didSet { UserDefaults.standard.set(deepThinking, forKey: "deepThinking") } }
+    var settings: AISettings {
+        didSet {
+            saveSettings()
+            if settings.provider != oldValue.provider { keySaved = keyStore.read(for: settings.provider.rawValue) != nil }
+        }
+    }
+    var useAI: Bool { didSet { defaults.set(useAI, forKey: "useAI") } }
+    var validateBeforeExport: Bool { didSet { defaults.set(validateBeforeExport, forKey: "validateBeforeExport") } }
     /// Send literal domains/IPs from existing rules to the AI instead of placeholders. Off by default.
-    var shareRuleLiterals: Bool { didSet { UserDefaults.standard.set(shareRuleLiterals, forKey: "shareRuleLiterals") } }
-    /// Key used only for this app run when the user chose not to save it.
-    var sessionKey: String?
+    var shareRuleLiterals: Bool { didSet { defaults.set(shareRuleLiterals, forKey: "shareRuleLiterals") } }
+    /// Keys used only for this app run when the user chose not to save them, by service.
+    private var sessionKeys: [AIProvider: String] = [:]
+    /// The current service's key for this run only.
+    var sessionKey: String? {
+        get { sessionKeys[settings.provider] }
+        set { sessionKeys[settings.provider] = newValue }
+    }
+    /// Whether the current service has a key in the keychain.
     var keySaved: Bool
 
     let store: SessionStore
     let keyStore: KeyStoring
+    @ObservationIgnored let defaults: UserDefaults
     let engine: EditorEngine
     private var tasks: [UUID: Task<Void, Never>] = [:]
     // Derived-value caches. Not observed: they are filled while views render. Lookups compare
@@ -88,21 +98,27 @@ final class EditorStore {
     @ObservationIgnored private var saveWork: [UUID: DispatchWorkItem] = [:]
     @ObservationIgnored private var toastWork: DispatchWorkItem?
 
-    init(store: SessionStore = SessionStore(), keyStore: KeyStoring = KeychainKeyStore(), engine: EditorEngine = EditorEngine(), persist: Bool = true) {
+    init(store: SessionStore = SessionStore(), keyStore: KeyStoring = KeychainKeyStore(), engine: EditorEngine = EditorEngine(),
+         defaults: UserDefaults = .standard, persist: Bool = true) {
         self.store = store
         self.keyStore = keyStore
         self.engine = engine
-        let defaults = UserDefaults.standard
+        self.defaults = defaults
+        var settings = AISettings()
         if let data = defaults.data(forKey: "aiSettings"), let saved = try? JSONDecoder().decode(AISettings.self, from: data) {
             settings = saved
-        } else {
-            settings = AISettings()
         }
+        // Thinking used to be a separate toggle with its own model.
+        settings.migrateLegacy(deepThinking: defaults.bool(forKey: "deepThinking"))
+        defaults.removeObject(forKey: "deepThinking")
+        // Earlier snapshot runs wrote their unreachable test address into the real preferences.
+        if settings.baseURL == Self.snapshotTestAddress { settings.baseURL = settings.provider.baseURL }
+        self.settings = settings
         useAI = defaults.object(forKey: "useAI") as? Bool ?? false
         validateBeforeExport = defaults.object(forKey: "validateBeforeExport") as? Bool ?? true
         shareRuleLiterals = defaults.object(forKey: "shareRuleLiterals") as? Bool ?? false
-        deepThinking = defaults.object(forKey: "deepThinking") as? Bool ?? false
-        keySaved = keyStore.read() != nil
+        keyStore.migrateLegacy(to: settings.provider.rawValue)
+        keySaved = keyStore.read(for: settings.provider.rawValue) != nil
         if persist {
             sessions = store.loadAll()
             selectedID = sessions.first?.id
@@ -165,8 +181,8 @@ final class EditorStore {
 
     var isRunning: Bool { current.map { tasks[$0.id] != nil } ?? false }
 
-    var apiKey: String? { sessionKey ?? keyStore.read() }
-    var aiConfigured: Bool { !settings.preset.needsKey || keySaved || sessionKey != nil }
+    var apiKey: String? { sessionKey ?? keyStore.read(for: settings.provider.rawValue) }
+    var aiConfigured: Bool { !settings.provider.needsKey || keySaved || sessionKey != nil }
     var effectiveUseAI: Bool { useAI && aiConfigured }
 
     var subtitle: String {
@@ -364,13 +380,12 @@ final class EditorStore {
         if handleCommand(prompt) { return }
 
         let useAI = effectiveUseAI
-        let mode: Turn.Mode = useAI ? .ai(model: deepThinking ? settings.effectiveReasoningModel : settings.model) : .local
+        let mode: Turn.Mode = useAI ? .ai(model: settings.modelLabel) : .local
         let steps = EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: .waiting) }
         var turn = Turn(prompt: prompt, mode: mode, steps: steps)
         var request = EditorEngine.Request(prompt: prompt, draft: draft, regions: session.regions(for: draft.targets), useAI: useAI,
                                            settings: settings, apiKey: apiKey, history: history(for: session, context: draft),
                                            shareRuleLiterals: shareRuleLiterals)
-        request.deepThinking = useAI && deepThinking
         if useAI { turn.sentPayload = EditorEngine.payload(for: request) }
         invalidatePending(in: &session)
         session.turns.append(turn)
@@ -753,7 +768,7 @@ final class EditorStore {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         if remember {
-            try keyStore.save(trimmed)
+            try keyStore.save(trimmed, for: settings.provider.rawValue)
             keySaved = true
             sessionKey = nil
         } else {
@@ -762,13 +777,37 @@ final class EditorStore {
     }
 
     func forgetKey() {
-        keyStore.delete()
+        keyStore.delete(for: settings.provider.rawValue)
         keySaved = false
         sessionKey = nil
     }
 
     private func saveSettings() {
-        if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "aiSettings") }
+        if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: "aiSettings") }
+    }
+
+    /// The address snapshot runs use to show an AI failure.
+    static let snapshotTestAddress = "https://127.0.0.1:9/v1"
+
+    /// Switches service, keeping the address and model the user had for it last time.
+    func selectProvider(_ provider: AIProvider) {
+        guard provider != settings.provider else { return }
+        if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: "aiSettings.\(settings.provider.rawValue)") }
+        if let data = defaults.data(forKey: "aiSettings.\(provider.rawValue)"), let saved = try? JSONDecoder().decode(AISettings.self, from: data),
+           saved.provider == provider {
+            settings = saved
+        } else {
+            settings = AISettings(provider: provider)
+        }
+    }
+
+    /// Fetches the current service's model list and keeps it in settings.
+    func fetchModels() async throws -> Int {
+        let current = settings
+        let models = try await AIClient().listModels(settings: current, apiKey: apiKey)
+        guard settings.provider == current.provider else { return 0 }
+        settings.fetchedModels = models
+        return models.count
     }
 
     // MARK: Persistence & feedback

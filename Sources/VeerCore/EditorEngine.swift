@@ -37,8 +37,6 @@ public struct EditorEngine: Sendable {
         public var history: [(role: String, content: String)]
         /// Send literal domains/IPs from existing rules instead of placeholders (off by default).
         public var shareRuleLiterals: Bool
-        /// Use the reasoning model and longer timeout.
-        public var deepThinking: Bool = false
 
         public init(prompt: String, draft: ConfigDocument, regions: [String: Region], useAI: Bool, settings: AISettings, apiKey: String?,
                     history: [(role: String, content: String)] = [], shareRuleLiterals: Bool = false) {
@@ -66,7 +64,7 @@ public struct EditorEngine: Sendable {
     /// The anonymized payload a request would send; shown to the user per turn.
     public static func payload(for request: Request) -> AIRequestPayload {
         let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
-        return AIRequestPayload(model: request.settings.model, exits: anonymized.context.exits.map(\.label),
+        return AIRequestPayload(model: request.settings.modelLabel, exits: anonymized.context.exits.map(\.label),
                                 history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
                                 instruction: anonymized.context.anonymize(request.prompt),
                                 system: AIClient.systemPrompt(config: anonymized.yaml), config: anonymized.yaml)
@@ -87,12 +85,12 @@ public struct EditorEngine: Sendable {
         let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
         let system = AIClient.systemPrompt(config: anonymized.yaml)
         let prompt = anonymized.context.anonymize(request.prompt)
-        let model = request.deepThinking ? request.settings.effectiveReasoningModel : request.settings.model
+        let model = request.settings.modelLabel
         var followUps: [(role: String, content: String)] = []
         var attempt = 0
         while true {
             let httpRequest = try ai.makeRequest(settings: request.settings, apiKey: request.apiKey, system: system, history: request.history,
-                                                 prompt: prompt, deepThinking: request.deepThinking, followUps: followUps)
+                                                 prompt: prompt, followUps: followUps)
             let answer = try await ai.completeWithReasoning(httpRequest)
             try Task.checkCancellation()
             if let reasoning = answer.reasoning, !reasoning.isEmpty { await progress(.reasoning(reasoning)) }

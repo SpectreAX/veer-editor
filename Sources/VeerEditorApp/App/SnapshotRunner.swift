@@ -98,9 +98,9 @@ enum SnapshotRunner {
         await shot("13-clarify-scope")
 
         store.useAI = true
-        store.settings = AISettings(preset: .deepSeek)
+        store.settings = AISettings(provider: .deepSeek)
         store.sessionKey = "sk-snapshot-invalid"
-        store.settings.baseURL = "https://127.0.0.1:9/v1"
+        store.settings.baseURL = EditorStore.snapshotTestAddress
         store.send("Telegram 走香港")
         await waitIdle(store)
         await shot("14-ai-failure")
@@ -211,6 +211,25 @@ enum SnapshotRunner {
         store.send("所有国外AI服务，策略组排除所有港澳节点")
         await waitIdle(store)
         await shot("27-exclude-regions")
+
+        // Deep thinking is a model choice; settings list the service's models.
+        store.selectProvider(.anthropic)
+        store.sessionKey = "sk-snapshot"
+        store.settings.select(ModelChoice(model: "claude-sonnet-5-5", thinking: true))
+        store.useAI = true
+        await shot("28-model-choice")
+        // The Settings scene cannot be opened from here; host the same view in a window of its own.
+        let settings = NSWindow(contentViewController: NSHostingController(rootView: SettingsView().environment(store).tint(.veerAccent)))
+        settings.title = "AI"
+        settings.setContentSize(CGSize(width: 560, height: 820))
+        settings.makeKeyAndOrderFront(nil)
+        await settle(1.0)
+        capture(settings, to: directory.appendingPathComponent("28-settings-\(suffix).png"))
+        settings.orderOut(nil)
+        await settle(0.4)
+        store.useAI = false
+        store.sessionKey = nil
+        store.selectProvider(.deepSeek)
 
         store.newImport()
         await shot("20-start-with-sessions")

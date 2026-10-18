@@ -325,7 +325,8 @@ struct ChangeRow: View {
                     .buttonStyle(.borderless).font(.callout).help("修改名称、类型和成员")
             }
             Toggle("接受", isOn: Binding(get: { accepted }, set: { toggle($0) }))
-                .toggleStyle(.switch).labelsHidden().controlSize(.small).tint(.veerAccent)
+                .toggleStyle(.checkbox).labelsHidden().tint(.veerAccent)
+                .help(accepted ? "已接受，取消勾选则不写入这一项" : "勾选以接受这一项")
                 .disabled(!editable)
                 .accessibilityLabel("\(accessibilityText)，\(accepted ? "已接受" : "已拒绝")")
         }

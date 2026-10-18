@@ -31,21 +31,39 @@ struct VeerEditorApp: App {
 }
 
 extension EditorStore {
-    /// Snapshot runs use an isolated, in-memory state so they never touch real sessions.
+    /// Snapshot runs use isolated state (sessions, keys and preferences) so they never touch the
+    /// user's real data or settings.
     static func makeForLaunch() -> EditorStore {
         if ProcessInfo.processInfo.environment["VEER_SNAPSHOT_DIR"] != nil {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("veer-snapshot-\(UUID().uuidString)")
-            return EditorStore(store: SessionStore(directory: directory), keyStore: MemoryKeyStore(), persist: false)
+            return EditorStore(store: SessionStore(directory: directory), keyStore: MemoryKeyStore(), defaults: MemoryDefaults(), persist: false)
         }
         return EditorStore()
     }
 }
 
+/// Preferences kept in memory only, for snapshot runs and tests: nothing reaches the user's
+/// real preferences or leaves files behind.
+nonisolated final class MemoryDefaults: UserDefaults, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+    private let lock = NSLock()
+
+    init() { super.init(suiteName: nil)! }
+
+    override func object(forKey defaultName: String) -> Any? { lock.withLock { values[defaultName] } }
+    override func set(_ value: Any?, forKey defaultName: String) { lock.withLock { values[defaultName] = value } }
+    override func set(_ value: Bool, forKey defaultName: String) { set(value as Any?, forKey: defaultName) }
+    override func removeObject(forKey defaultName: String) { lock.withLock { values[defaultName] = nil } }
+    override func data(forKey defaultName: String) -> Data? { object(forKey: defaultName) as? Data }
+    override func bool(forKey defaultName: String) -> Bool { object(forKey: defaultName) as? Bool ?? false }
+}
+
 final class MemoryKeyStore: KeyStoring, @unchecked Sendable {
-    private var value: String?
-    func read() -> String? { value }
-    func save(_ key: String) throws { value = key }
-    func delete() { value = nil }
+    private var values: [String: String] = [:]
+    private let lock = NSLock()
+    func read(for provider: String) -> String? { lock.withLock { values[provider] } }
+    func save(_ key: String, for provider: String) throws { lock.withLock { values[provider] = key } }
+    func delete(for provider: String) { lock.withLock { values[provider] = nil } }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {

@@ -63,18 +63,14 @@ struct UnderstandingAndRepairTests {
         #expect(throws: EditorError.self) { try EditPlan.decodeReply(#"{"understanding":"x","clarification":"y","operations":[]}"#) }
     }
 
-    @Test func deepThinkingUsesTheReasoningModel() throws {
-        var settings = AISettings(preset: .deepSeek)
-        #expect(settings.effectiveReasoningModel == "deepseek-reasoner")
-        let request = try AIClient().makeRequest(settings: settings, apiKey: "k", system: "s", history: [], prompt: "p", deepThinking: true)
+    @Test func reasoningModelsDropJSONModeAndWaitLonger() throws {
+        var settings = AISettings(provider: .deepSeek)
+        settings.select(ModelChoice(model: "deepseek-reasoner", thinking: true))
+        #expect(settings.thinks && settings.modelLabel == "deepseek-reasoner · 深度思考")
+        let request = try AIClient().makeRequest(settings: settings, apiKey: "k", system: "s", history: [], prompt: "p").urlRequest
         let body = try #require(try JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
         #expect(body["model"] as? String == "deepseek-reasoner" && body["response_format"] == nil && body["temperature"] == nil)
         #expect(request.timeoutInterval == 180)
-        settings.reasoningModel = "my-thinker"
-        #expect(settings.effectiveReasoningModel == "my-thinker")
-        // Old saved settings (no reasoningModel key) still decode.
-        let old = try JSONDecoder().decode(AISettings.self, from: Data(#"{"preset":"openAI","baseURL":"https://api.openai.com/v1","model":"gpt-4.1-mini"}"#.utf8))
-        #expect(old.effectiveReasoningModel == "o4-mini")
     }
 
     final class Scripted: AITransport, @unchecked Sendable {
@@ -108,9 +104,8 @@ struct UnderstandingAndRepairTests {
         let transport = Scripted([bad, good])
         let engine = EditorEngine(ai: AIClient(transport: transport), validator: Pass(), verifier: Verified())
         let events = Events()
-        var request = EditorEngine.Request(prompt: "所有国外AI服务，策略组排除所有港澳节点", draft: doc, regions: RegionalFixture.regions(doc), useAI: true,
-                                           settings: AISettings(), apiKey: "k")
-        request.deepThinking = true
+        let request = EditorEngine.Request(prompt: "所有国外AI服务，策略组排除所有港澳节点", draft: doc, regions: RegionalFixture.regions(doc), useAI: true,
+                                           settings: AISettings(provider: .deepSeek, model: "deepseek-reasoner"), apiKey: "k")
         let output = try await engine.run(request) { event in
             switch event {
             case .retrying(let problem): events.add("retry:\(problem)")

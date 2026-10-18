@@ -492,3 +492,13 @@ native/macos-editor/
 - 深度思考：输入框菜单和设置中的开关；使用服务商的推理模型（DeepSeek `deepseek-reasoner`、OpenAI `o4-mini`、OpenRouter `deepseek/deepseek-r1`，可自定义），超时 180 秒，不强制 JSON 模式；若服务返回 `reasoning_content` / `reasoning`，以可折叠的“模型思考”显示。解析时能从说明文字中提取 JSON。
 - 自动修正：AI 回答无法使用（JSON 无效、出口 id 不存在、规则集 404、计划校验失败）时，把错误发回让模型修正一次；仍不可用才显示错误。对话中标注“已自动让 AI 修正”。
 - 本地解析：认识“AI 服务 / 国外 AI / 人工智能 / Gemini”；“排除 / 不要 / 除了 + 地区”生成排除地区的新策略组；只描述出口的子句（如“策略组排除所有港澳节点”）会并入前一个子句。
+
+### 2026-10-19：主流 AI 服务、模型切换与设置修复
+
+- 修复：重新构建并运行截图脚本后，AI 服务地址变成 `https://127.0.0.1:9/v1`。原因是截图脚本用来演示“AI 连接失败”的测试地址写进了真实的偏好设置。现在截图运行和单元测试使用仅在内存中的偏好设置（`MemoryDefaults`），不再读写用户设置；启动时如发现保存的地址正是这个测试地址，自动恢复为当前服务的默认地址。
+- 深度思考不再是独立开关，而是模型选择：输入框菜单与设置中的“模型”列出当前服务的模型，带“深度思考”的选项让模型先推理再回答。推理模型（deepseek-reasoner、o4-mini、R1、kimi-k2-thinking、gemini-2.5-pro、grok-4）只有深度思考选项；可切换的模型（Claude、Gemini 2.5 Flash、GPT-5、GLM-4.5/4.6）同时有普通与深度思考两项。旧设置自动迁移：原来打开深度思考的，改为选中原推理模型。
+- 支持的服务：OpenAI、Anthropic Claude（Messages API）、Google Gemini（generateContent）、DeepSeek、OpenRouter、通义千问（阿里云百炼兼容模式）、Kimi、智谱 GLM、硅基流动、xAI Grok、Ollama（本机）和自定义 OpenAI 兼容服务。每个服务有默认地址和建议模型；“从服务获取”调用服务的模型列表接口（过滤掉嵌入、语音、图像等非对话模型），也可以直接输入模型 ID。获取模型列表与测试连接都不发送配置。
+- 请求格式按服务适配：Claude 使用 `x-api-key` 与 `anthropic-version`，深度思考发送 `thinking`（budget 8000）；Gemini 使用 `x-goog-api-key`、`responseMimeType: application/json` 和 `thinkingConfig`（普通 0、深度思考动态并返回思考摘要）；GPT-5 使用 `reasoning_effort`（minimal / medium）；GLM 使用 `thinking.type`。思考内容从 `reasoning_content`、`reasoning`、Claude thinking 块、Gemini thought 片段或 `<think>` 标签中读取。服务返回 4xx 且带说明时（如模型不存在），错误信息包含服务的原话。
+- API Key 按服务分别保存在钥匙串；切换服务时恢复该服务上次的地址和模型。原有的单个 Key 迁移给当前服务。
+- 开关改为勾选框：审阅卡片的“接受”、设置中的选项与导出前校验。
+- 未验证：没有用真实的 Claude、Gemini、Kimi、GLM、xAI 等服务测试；建议模型名称以各服务当前文档为准，可用“从服务获取”核对。

@@ -19,65 +19,110 @@ struct AISettingsPane: View {
     @State private var remember = true
     @State private var testState: TestState = .idle
     @State private var keyError: String?
+    @State private var fetchState: TestState = .idle
+    @State private var customModel = ""
 
     enum TestState: Equatable { case idle, running, passed, failed(String) }
 
     var body: some View {
         @Bindable var store = store
         Form {
-            Picker("服务", selection: Binding(get: { store.settings.preset }, set: { preset in
-                store.settings = AISettings(preset: preset)
-                testState = .idle
-            })) {
-                ForEach(AISettings.Preset.allCases) { Text($0.title).tag($0) }
-            }
-            TextField("地址", text: $store.settings.baseURL, prompt: Text("https://…/v1"))
-            TextField("模型", text: $store.settings.model)
-            if store.settings.preset.needsKey {
-                LabeledContent("API Key") {
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
-                        if store.keySaved || store.sessionKey != nil {
-                            HStack {
-                                StatusBadge(kind: .success, text: store.keySaved ? "已保存到钥匙串" : "仅本次运行有效", compact: true)
-                                Spacer()
-                                Button("移除") { store.forgetKey(); testState = .idle }
-                            }
-                        } else {
-                            SecureField("粘贴 API Key", text: $key)
-                            Toggle("保存到钥匙串", isOn: $remember)
-                            HStack {
-                                Button("保存") {
-                                    do { try store.saveKey(key, remember: remember); key = ""; keyError = nil } catch { keyError = store.message(for: error) }
-                                }
-                                .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
-                                if let keyError { Text(keyError).foregroundStyle(Color.statusFailure).font(.caption) }
-                            }
-                        }
+            Section {
+                Picker("服务", selection: Binding(get: { store.settings.provider }, set: { provider in
+                    store.selectProvider(provider)
+                    testState = .idle
+                    fetchState = .idle
+                    key = ""
+                })) {
+                    ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                }
+                TextField("地址", text: $store.settings.baseURL, prompt: Text(store.settings.provider.baseURL.isEmpty ? "https://…/v1" : store.settings.provider.baseURL))
+                if store.settings.provider.needsKey { keyRow }
+                LabeledContent("连接") {
+                    HStack {
+                        Button("测试连接") { test() }.disabled(testState == .running || !store.aiConfigured)
+                        status(testState, passed: "可以连接，JSON 输出正常")
                     }
                 }
             }
-            LabeledContent("连接") {
-                HStack {
-                    Button("测试连接") { test() }.disabled(testState == .running || !store.aiConfigured)
-                    switch testState {
-                    case .idle: EmptyView()
-                    case .running: ProgressView().controlSize(.small)
-                    case .passed: StatusBadge(kind: .success, text: "可以连接，JSON 输出正常", compact: true)
-                    case .failed(let message): StatusBadge(kind: .failure, text: message, compact: true).fixedSize(horizontal: false, vertical: true)
+            Section {
+                Picker("模型", selection: Binding(get: { store.settings.choice.id }, set: { id in
+                    if let choice = store.settings.choices.first(where: { $0.id == id }) { store.settings.select(choice) }
+                    testState = .idle
+                })) {
+                    ForEach(store.settings.choices) { choice in
+                        Label(choice.title, systemImage: choice.thinking ? "brain" : "sparkles").tag(choice.id)
                     }
                 }
+                LabeledContent("其他模型") {
+                    HStack {
+                        TextField("其他模型", text: $customModel, prompt: Text("输入模型 ID"))
+                            .labelsHidden()
+                            .onSubmit(useCustomModel)
+                        Button("使用", action: useCustomModel)
+                            .disabled(customModel.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+                LabeledContent("模型列表") {
+                    HStack {
+                        Button(store.settings.fetchedModels.isEmpty ? "从服务获取" : "重新获取") { fetch() }
+                            .disabled(fetchState == .running || !store.aiConfigured)
+                        status(fetchState, passed: "已获取 \(store.settings.fetchedModels.count) 个模型")
+                    }
+                }
+                Text("标有“深度思考”的选项让模型先推理再回答，更擅长理解复杂指令，但更慢、费用更高。DeepSeek Reasoner、o4-mini、R1 等推理模型始终深度思考；Claude、Gemini 2.5 Flash、GPT-5、GLM 可在同一模型的普通与深度思考之间切换。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            Toggle("对话默认使用 AI 解析", isOn: $store.useAI)
-            Toggle("深度思考", isOn: $store.deepThinking)
-            TextField("思考模型", text: Binding(get: { store.settings.reasoningModel ?? "" },
-                                               set: { store.settings.reasoningModel = $0.isEmpty ? nil : $0 }),
-                      prompt: Text(store.settings.preset.suggestedReasoningModel ?? store.settings.model))
-            Text("深度思考使用推理模型（如 DeepSeek 的 deepseek-reasoner），更擅长理解复杂指令，但更慢、费用更高。AI 回答无法使用时，Veer 会把问题发回让它修正一次。")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("测试连接只发送一句固定的测试文字，不包含任何配置。地址必须是 HTTPS，本机服务可以用 HTTP。")
-                .font(.caption).foregroundStyle(.secondary)
+            Section {
+                Toggle("对话默认使用 AI 解析", isOn: $store.useAI)
+                Text("AI 回答无法使用时，Veer 会把问题发回让它修正一次。测试连接和获取模型列表不包含任何配置。地址必须是 HTTPS，本机服务可以用 HTTP。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+        .toggleStyle(.checkbox)
+    }
+
+    private var keyRow: some View {
+        @Bindable var store = store
+        return LabeledContent("API Key") {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                if store.keySaved || store.sessionKey != nil {
+                    HStack {
+                        StatusBadge(kind: .success, text: store.keySaved ? "已保存到钥匙串" : "仅本次运行有效", compact: true)
+                        Spacer()
+                        Button("移除") { store.forgetKey(); testState = .idle }
+                    }
+                } else {
+                    SecureField("粘贴 \(store.settings.provider.title) 的 API Key", text: $key)
+                    Toggle("保存到钥匙串", isOn: $remember)
+                    HStack {
+                        Button("保存") {
+                            do { try store.saveKey(key, remember: remember); key = ""; keyError = nil } catch { keyError = store.message(for: error) }
+                        }
+                        .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty)
+                        if let keyError { Text(keyError).foregroundStyle(Color.statusFailure).font(.caption) }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func status(_ state: TestState, passed: String) -> some View {
+        switch state {
+        case .idle: EmptyView()
+        case .running: ProgressView().controlSize(.small)
+        case .passed: StatusBadge(kind: .success, text: passed, compact: true)
+        case .failed(let message): StatusBadge(kind: .failure, text: message, compact: true).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func useCustomModel() {
+        let model = customModel.trimmingCharacters(in: .whitespaces)
+        guard !model.isEmpty else { return }
+        store.settings.select(store.settings.provider.choices(for: model)[0])
+        customModel = ""
+        testState = .idle
     }
 
     private func test() {
@@ -89,6 +134,18 @@ struct AISettingsPane: View {
                 testState = .passed
             } catch {
                 testState = .failed(store.message(for: error))
+            }
+        }
+    }
+
+    private func fetch() {
+        fetchState = .running
+        Task {
+            do {
+                _ = try await store.fetchModels()
+                fetchState = .passed
+            } catch {
+                fetchState = .failed(store.message(for: error))
             }
         }
     }
@@ -114,6 +171,7 @@ struct PrivacySettingsPane: View {
             }
             Section {
                 Toggle("发送现有规则中的具体域名和 IP", isOn: Binding(get: { store.shareRuleLiterals }, set: { store.shareRuleLiterals = $0 }))
+                    .toggleStyle(.checkbox)
                 Text("关闭时这些值显示为 <域名N>、<IPN>。打开后 AI 能看到你现有的分流目标，可能包含内网或个人常用域名。").font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -144,7 +202,7 @@ struct ValidatorSettingsPane: View {
                 else if let version { StatusBadge(kind: .success, text: "可用 · \(version)", compact: true) }
                 else { StatusBadge(kind: .warning, text: "不可用：只进行结构检查", compact: true) }
             }
-            Toggle("导出前默认进行内核校验", isOn: $store.validateBeforeExport)
+            Toggle("导出前默认进行内核校验", isOn: $store.validateBeforeExport).toggleStyle(.checkbox)
             Text("每次生成修改后，Veer 用内置 Mihomo 的 -t 配置测试检查候选配置。通过只代表配置能被解析，不代表网络可达或服务可解锁。")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -172,7 +230,7 @@ struct ExportSheet: View {
                 Text("相对原始配置：+\(stats.added) 行 / −\(stats.removed) 行" + (stats.providers > 0 ? "，新增 \(stats.providers) 个规则集" : ""))
                 Text("除 rules 与新增的 rule-providers 外，其余内容与原文逐字节一致。").font(.callout).foregroundStyle(.secondary)
             }
-            Toggle("导出前进行内核校验", isOn: $validate)
+            Toggle("导出前进行内核校验", isOn: $validate).toggleStyle(.checkbox)
             Label("不会覆盖导入的原始文件，也不会应用到正在运行的代理。", systemImage: "info.circle")
                 .font(.callout).foregroundStyle(.secondary)
             if let error { StatusBadge(kind: .failure, text: error).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }

@@ -1,66 +1,5 @@
 import Foundation
 
-public struct AISettings: Sendable, Codable, Equatable {
-    public enum Preset: String, Sendable, Codable, CaseIterable, Identifiable {
-        case openAI, deepSeek, openRouter, ollama, custom
-        public var id: String { rawValue }
-        public var title: String {
-            switch self {
-            case .openAI: "OpenAI"
-            case .deepSeek: "DeepSeek"
-            case .openRouter: "OpenRouter"
-            case .ollama: "Ollama（本机）"
-            case .custom: "自定义（OpenAI 兼容）"
-            }
-        }
-        public var baseURL: String {
-            switch self {
-            case .openAI: "https://api.openai.com/v1"
-            case .deepSeek: "https://api.deepseek.com/v1"
-            case .openRouter: "https://openrouter.ai/api/v1"
-            case .ollama: "http://127.0.0.1:11434/v1"
-            case .custom: ""
-            }
-        }
-        public var suggestedModel: String {
-            switch self {
-            case .openAI: "gpt-4.1-mini"
-            case .deepSeek: "deepseek-chat"
-            case .openRouter: "openai/gpt-4.1-mini"
-            case .ollama: "qwen2.5:7b"
-            case .custom: ""
-            }
-        }
-        public var needsKey: Bool { self != .ollama }
-        /// A reasoning model for deep thinking; nil means "use the normal model".
-        public var suggestedReasoningModel: String? {
-            switch self {
-            case .openAI: "o4-mini"
-            case .deepSeek: "deepseek-reasoner"
-            case .openRouter: "deepseek/deepseek-r1"
-            case .ollama, .custom: nil
-            }
-        }
-    }
-
-    public var preset: Preset
-    public var baseURL: String
-    public var model: String
-    /// Model used when deep thinking is on; nil means the preset's suggestion (or `model`).
-    public var reasoningModel: String?
-
-    public var effectiveReasoningModel: String {
-        if let reasoningModel, !reasoningModel.trimmingCharacters(in: .whitespaces).isEmpty { return reasoningModel }
-        return preset.suggestedReasoningModel ?? model
-    }
-
-    public init(preset: Preset = .deepSeek, baseURL: String? = nil, model: String? = nil) {
-        self.preset = preset
-        self.baseURL = baseURL ?? preset.baseURL
-        self.model = model ?? preset.suggestedModel
-    }
-}
-
 /// Classified AI failures; the UI maps each to a recovery action.
 public enum AIFailure: Error, Equatable, Sendable {
     case missingKey
@@ -71,6 +10,8 @@ public enum AIFailure: Error, Equatable, Sendable {
     case rateLimited
     case server(Int)
     case http(Int)
+    /// 4xx with the service's own explanation (wrong model name, bad parameter).
+    case rejected(Int, String)
     case invalidResponse(String)
     case cancelled
 
@@ -79,11 +20,12 @@ public enum AIFailure: Error, Equatable, Sendable {
         case .missingKey: "还没有设置 AI 服务的 API Key。"
         case .invalidEndpoint(let reason): reason
         case .network: "无法连接 AI 服务，请检查网络与服务地址。"
-        case .timeout: "AI 服务 60 秒内没有响应。"
+        case .timeout: "AI 服务长时间没有响应（普通模型 60 秒，深度思考 180 秒）。"
         case .unauthorized(let code): "AI 服务拒绝了请求（HTTP \(code)），请检查 API Key 与模型权限。"
         case .rateLimited: "AI 服务限流或额度不足（HTTP 429），请稍后重试。"
         case .server(let code): "AI 服务暂时出错（HTTP \(code)），可以重试。"
         case .http(let code): "AI 服务返回 HTTP \(code)，请检查地址和模型名称。"
+        case let .rejected(code, detail): "AI 服务返回 HTTP \(code)：\(detail)。请检查地址和模型名称。"
         case .invalidResponse(let reason): reason
         case .cancelled: "已停止。"
         }
@@ -91,7 +33,7 @@ public enum AIFailure: Error, Equatable, Sendable {
 
     public var opensSettings: Bool {
         switch self {
-        case .missingKey, .invalidEndpoint, .unauthorized, .http: true
+        case .missingKey, .invalidEndpoint, .unauthorized, .http, .rejected: true
         default: false
         }
     }
@@ -154,11 +96,21 @@ public final class URLSessionTransport: NSObject, AITransport, URLSessionTaskDel
                            newRequest request: URLRequest) async -> URLRequest? { nil }
 }
 
+
+/// A service request plus the wire format needed to read its answer.
+public struct AIRequest: Sendable {
+    public let urlRequest: URLRequest
+    public let format: AIAPIFormat
+}
+
 public struct AIClient: Sendable {
     let transport: AITransport
     public init(transport: AITransport = URLSessionTransport()) { self.transport = transport }
 
-    public static func endpoint(for baseURL: String) throws -> URL {
+    // MARK: Endpoints
+
+    /// Checks a base address: HTTPS, or HTTP on this Mac; no credentials, query or fragment.
+    static func validatedBase(_ baseURL: String) throws -> URLComponents {
         guard var components = URLComponents(string: baseURL.trimmingCharacters(in: .whitespaces)), let host = components.host, let scheme = components.scheme else {
             throw AIFailure.invalidEndpoint("AI 服务地址无效。")
         }
@@ -169,43 +121,125 @@ public struct AIClient: Sendable {
         guard components.user == nil, components.password == nil, components.query == nil, components.fragment == nil else {
             throw AIFailure.invalidEndpoint("AI 服务地址不能包含用户名、密码或查询参数。")
         }
-        components.path = components.path.replacingOccurrences(of: #"/+$"#, with: "", options: .regularExpression) + "/chat/completions"
-        return components.url!
+        components.path = components.path.replacingOccurrences(of: #"/+$"#, with: "", options: .regularExpression)
+        return components
     }
+
+    static func url(_ baseURL: String, appending path: String, query: [URLQueryItem] = []) throws -> URL {
+        var components = try validatedBase(baseURL)
+        components.path += path
+        if !query.isEmpty { components.queryItems = query }
+        guard let url = components.url else { throw AIFailure.invalidEndpoint("AI 服务地址无效。") }
+        return url
+    }
+
+    /// The OpenAI-compatible chat endpoint for a base address.
+    public static func endpoint(for baseURL: String) throws -> URL {
+        try url(baseURL, appending: "/chat/completions")
+    }
+
+    static func authorize(_ request: inout URLRequest, format: AIAPIFormat, apiKey: String?) {
+        guard let apiKey, !apiKey.isEmpty else { return }
+        switch format {
+        case .openAI: request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        case .anthropic: request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        case .gemini: request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+        }
+        if format == .anthropic { request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version") }
+    }
+
+    // MARK: Requests
 
     public func makeRequest(settings: AISettings, apiKey: String?, system: String, history: [(role: String, content: String)], prompt: String,
-                            deepThinking: Bool = false, followUps: [(role: String, content: String)] = []) throws -> URLRequest {
-        if settings.preset.needsKey && (apiKey ?? "").trimmingCharacters(in: .whitespaces).isEmpty { throw AIFailure.missingKey }
-        let model = deepThinking ? settings.effectiveReasoningModel : settings.model
-        guard !model.trimmingCharacters(in: .whitespaces).isEmpty else { throw AIFailure.invalidEndpoint("请填写模型名称。") }
-        // Reasoning models take longer and some reject temperature / JSON mode.
-        var request = URLRequest(url: try Self.endpoint(for: settings.baseURL), timeoutInterval: deepThinking ? 180 : 60)
+                            followUps: [(role: String, content: String)] = []) throws -> AIRequest {
+        if settings.provider.needsKey && (apiKey ?? "").trimmingCharacters(in: .whitespaces).isEmpty { throw AIFailure.missingKey }
+        let model = settings.model.trimmingCharacters(in: .whitespaces)
+        guard !model.isEmpty else { throw AIFailure.invalidEndpoint("请选择或填写模型。") }
+        let format = settings.provider.format
+        let style = settings.thinkingStyle
+        let thinks = settings.thinks
+        let turns = history + [("user", prompt)] + followUps
+
+        let url: URL
+        var body: [String: Any]
+        switch format {
+        case .openAI:
+            url = try Self.endpoint(for: settings.baseURL)
+            body = ["model": model, "stream": false,
+                    "messages": [["role": "system", "content": system]] + turns.map { ["role": $0.role, "content": $0.content] }]
+            switch (style, thinks) {
+            case (.openAIEffort, _):
+                // GPT-5 family accepts only the default temperature.
+                body["reasoning_effort"] = thinks ? "medium" : "minimal"
+                body["response_format"] = ["type": "json_object"]
+            case (_, true):
+                // Reasoning models are slow and several reject temperature or JSON mode.
+                if style == .zhipu { body["thinking"] = ["type": "enabled"] }
+            case (_, false):
+                if style == .zhipu { body["thinking"] = ["type": "disabled"] }
+                body["temperature"] = 0
+                body["response_format"] = ["type": "json_object"]
+            }
+        case .anthropic:
+            url = try Self.url(settings.baseURL, appending: "/messages")
+            body = ["model": model, "system": system, "max_tokens": thinks ? 16_000 : 4_096,
+                    "messages": Self.alternating(turns).map { ["role": $0.role, "content": $0.content] }]
+            if thinks { body["thinking"] = ["type": "enabled", "budget_tokens": 8_000] } else { body["temperature"] = 0 }
+        case .gemini:
+            let path = model.hasPrefix("models/") ? String(model.dropFirst(7)) : model
+            guard let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/:"))) else {
+                throw AIFailure.invalidEndpoint("模型名称无效。")
+            }
+            url = try Self.url(settings.baseURL, appending: "/models/\(escaped):generateContent")
+            var generation: [String: Any] = ["responseMimeType": "application/json"]
+            if !thinks { generation["temperature"] = 0 }
+            switch style {
+            case .gemini: generation["thinkingConfig"] = thinks ? ["thinkingBudget": -1, "includeThoughts": true] : ["thinkingBudget": 0]
+            case .intrinsic: generation["thinkingConfig"] = ["includeThoughts": true]
+            default: break
+            }
+            body = ["systemInstruction": ["parts": [["text": system]]],
+                    "contents": Self.alternating(turns).map { ["role": $0.role == "assistant" ? "model" : "user", "parts": [["text": $0.content]]] },
+                    "generationConfig": generation]
+        }
+
+        var request = URLRequest(url: url, timeoutInterval: thinks ? 180 : 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let apiKey, !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
-        var messages: [[String: String]] = [["role": "system", "content": system]]
-        messages += history.map { ["role": $0.role, "content": $0.content] }
-        messages.append(["role": "user", "content": prompt])
-        messages += followUps.map { ["role": $0.role, "content": $0.content] }
-        var body: [String: Any] = ["model": model, "stream": false, "messages": messages]
-        if deepThinking {
-            if settings.preset == .openAI { body["reasoning_effort"] = "medium" }
-        } else {
-            body["temperature"] = 0
-            body["response_format"] = ["type": "json_object"]
-        }
+        Self.authorize(&request, format: format, apiKey: apiKey)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        return request
+        return AIRequest(urlRequest: request, format: format)
     }
 
+    /// Claude and Gemini need user/assistant turns to alternate, starting with the user.
+    static func alternating(_ turns: [(role: String, content: String)]) -> [(role: String, content: String)] {
+        var result: [(role: String, content: String)] = []
+        for turn in turns {
+            if result.isEmpty && turn.role != "user" { continue }
+            if let last = result.last, last.role == turn.role {
+                result[result.count - 1].content += "\n\n" + turn.content
+            } else {
+                result.append(turn)
+            }
+        }
+        return result
+    }
+
+    // MARK: Responses
+
     /// Sends one request and returns the assistant message content.
-    public func complete(_ request: URLRequest) async throws -> String {
+    public func complete(_ request: AIRequest) async throws -> String {
         try await completeWithReasoning(request).content
     }
 
-    /// Content plus the provider's reasoning text when it returns one (DeepSeek `reasoning_content`,
-    /// OpenRouter `reasoning`).
-    public func completeWithReasoning(_ request: URLRequest) async throws -> (content: String, reasoning: String?) {
+    /// Content plus the model's reasoning when the service returns it (DeepSeek `reasoning_content`,
+    /// OpenRouter `reasoning`, Claude thinking blocks, Gemini thought parts, `<think>` tags).
+    public func completeWithReasoning(_ request: AIRequest) async throws -> (content: String, reasoning: String?) {
+        let data = try await send(request.urlRequest, format: request.format)
+        return try Self.parse(data, format: request.format)
+    }
+
+    func send(_ request: URLRequest, format: AIAPIFormat) async throws -> Data {
         let data: Data, response: HTTPURLResponse
         do {
             (data, response) = try await transport.send(request)
@@ -223,34 +257,117 @@ public struct AIClient: Sendable {
         } catch {
             throw AIFailure.network
         }
+        let detail = Self.errorMessage(data)
         switch response.statusCode {
-        case 200..<300: break
+        case 200..<300: return data
         case 300..<400: throw AIFailure.invalidResponse("AI 服务返回了重定向，Veer 不会跟随。请检查服务地址。")
         case 401, 403: throw AIFailure.unauthorized(response.statusCode)
+        case 400 where format == .gemini && (detail?.localizedCaseInsensitiveContains("api key") ?? false): throw AIFailure.unauthorized(400)
         case 429: throw AIFailure.rateLimited
         case 500...: throw AIFailure.server(response.statusCode)
-        default: throw AIFailure.http(response.statusCode)
+        default:
+            if let detail { throw AIFailure.rejected(response.statusCode, detail) }
+            throw AIFailure.http(response.statusCode)
         }
-        guard let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choice = (reply["choices"] as? [[String: Any]])?.first else {
-            throw AIFailure.invalidResponse("AI 服务返回了无法读取的响应，请重试。")
+    }
+
+    /// `{"error":{"message":…}}`, the shape OpenAI, Claude and Gemini all use.
+    static func errorMessage(_ data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let message = ((object["error"] as? [String: Any])?["message"] as? String) ?? (object["error"] as? String) ?? (object["message"] as? String)
+        guard let message = message?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty else { return nil }
+        return String(message.prefix(200))
+    }
+
+    static let incomplete = AIFailure.invalidResponse("AI 的回答没有完整结束，请缩短指令或检查模型设置后重试。")
+    static let unreadable = AIFailure.invalidResponse("AI 服务返回了无法读取的响应，请重试。")
+
+    static func parse(_ data: Data, format: AIAPIFormat) throws -> (content: String, reasoning: String?) {
+        guard let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw unreadable }
+        var content = ""
+        var reasoning: String?
+        switch format {
+        case .openAI:
+            guard let choice = (reply["choices"] as? [[String: Any]])?.first else { throw unreadable }
+            if let finish = choice["finish_reason"] as? String, finish != "stop" { throw incomplete }
+            let message = choice["message"] as? [String: Any]
+            content = message?["content"] as? String ?? ""
+            reasoning = (message?["reasoning_content"] as? String) ?? (message?["reasoning"] as? String)
+        case .anthropic:
+            guard let blocks = reply["content"] as? [[String: Any]] else { throw unreadable }
+            if reply["stop_reason"] as? String == "max_tokens" { throw incomplete }
+            content = blocks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined()
+            let thoughts = blocks.filter { $0["type"] as? String == "thinking" }.compactMap { $0["thinking"] as? String }
+            reasoning = thoughts.isEmpty ? nil : thoughts.joined(separator: "\n\n")
+        case .gemini:
+            guard let candidate = (reply["candidates"] as? [[String: Any]])?.first else {
+                if let blocked = (reply["promptFeedback"] as? [String: Any])?["blockReason"] as? String {
+                    throw AIFailure.invalidResponse("AI 服务拒绝回答（\(blocked)），请换一种说法。")
+                }
+                throw unreadable
+            }
+            switch candidate["finishReason"] as? String {
+            case nil, "STOP": break
+            case "MAX_TOKENS": throw incomplete
+            case let reason?: throw AIFailure.invalidResponse("AI 服务拒绝回答（\(reason)），请换一种说法。")
+            }
+            let parts = (candidate["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? []
+            content = parts.filter { $0["thought"] as? Bool != true }.compactMap { $0["text"] as? String }.joined()
+            let thoughts = parts.filter { $0["thought"] as? Bool == true }.compactMap { $0["text"] as? String }
+            reasoning = thoughts.isEmpty ? nil : thoughts.joined(separator: "\n\n")
         }
-        if let finish = choice["finish_reason"] as? String, finish != "stop" {
-            throw AIFailure.invalidResponse("AI 的回答没有完整结束，请缩短指令或检查模型设置后重试。")
-        }
-        let message = choice["message"] as? [String: Any]
-        guard let content = message?["content"] as? String, !content.isEmpty, content.count <= 100_000 else {
-            throw AIFailure.invalidResponse("AI 返回的内容为空或超过长度限制。")
-        }
-        let reasoning = (message?["reasoning_content"] as? String) ?? (message?["reasoning"] as? String)
+        let split = splitThinkTags(content)
+        content = split.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if reasoning == nil || reasoning?.isEmpty == true { reasoning = split.reasoning }
+        guard !content.isEmpty, content.count <= 100_000 else { throw AIFailure.invalidResponse("AI 返回的内容为空或超过长度限制。") }
         return (content, reasoning.map { String($0.prefix(20_000)) })
     }
 
-    /// Minimal request with no configuration data: confirms key, model and JSON mode work.
+    /// Open models (R1, QwQ, Qwen3 on Ollama) put their reasoning in `<think>…</think>` before the answer.
+    static func splitThinkTags(_ text: String) -> (content: String, reasoning: String?) {
+        guard let open = text.range(of: "<think>"), let close = text.range(of: "</think>", range: open.upperBound..<text.endIndex) else {
+            return (text, nil)
+        }
+        let thought = text[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        return (String(text[..<open.lowerBound]) + String(text[close.upperBound...]), thought.isEmpty ? nil : thought)
+    }
+
+    // MARK: Connection test and model list
+
+    /// Minimal request with no configuration data: confirms key, model and JSON output work.
     public func testConnection(settings: AISettings, apiKey: String?) async throws {
         let request = try makeRequest(settings: settings, apiKey: apiKey, system: "Reply with the JSON object {\"ok\":true} and nothing else.", history: [], prompt: "ping")
         let content = try await complete(request)
-        guard content.contains("ok") else { throw AIFailure.invalidResponse("AI 服务可以连接，但没有按 JSON 格式回答。请换一个支持 JSON 输出的模型。") }
+        guard content.contains("ok") else { throw AIFailure.invalidResponse("AI 服务可以连接，但没有按 JSON 格式回答。请换一个模型。") }
+    }
+
+    /// Chat models the service offers, for the model menu. Sends no configuration data.
+    public func listModels(settings: AISettings, apiKey: String?) async throws -> [String] {
+        let format = settings.provider.format
+        if settings.provider.needsKey && (apiKey ?? "").trimmingCharacters(in: .whitespaces).isEmpty { throw AIFailure.missingKey }
+        let url: URL
+        switch format {
+        case .openAI: url = try Self.url(settings.baseURL, appending: "/models")
+        case .anthropic: url = try Self.url(settings.baseURL, appending: "/models", query: [URLQueryItem(name: "limit", value: "1000")])
+        case .gemini: url = try Self.url(settings.baseURL, appending: "/models", query: [URLQueryItem(name: "pageSize", value: "1000")])
+        }
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        Self.authorize(&request, format: format, apiKey: apiKey)
+        let data = try await send(request, format: format)
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Self.unreadable }
+        var ids: [String]
+        switch format {
+        case .openAI, .anthropic:
+            ids = (object["data"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        case .gemini:
+            ids = (object["models"] as? [[String: Any]] ?? [])
+                .filter { ($0["supportedGenerationMethods"] as? [String])?.contains("generateContent") ?? true }
+                .compactMap { ($0["name"] as? String).map { $0.hasPrefix("models/") ? String($0.dropFirst(7)) : $0 } }
+        }
+        let notChat = #"(embed|whisper|tts|dall-e|davinci|babbage|moderation|image|audio|realtime|transcribe|speech|rerank|sora|veo|imagen|aqa)"#
+        ids = ids.filter { $0.range(of: notChat, options: [.regularExpression, .caseInsensitive]) == nil }
+        guard !ids.isEmpty else { throw AIFailure.invalidResponse("AI 服务没有返回可用的对话模型。") }
+        return Array(Set(ids)).sorted().prefix(500).map { $0 }
     }
 
     /// Instructions for every Veer client; see `SystemPrompt`.

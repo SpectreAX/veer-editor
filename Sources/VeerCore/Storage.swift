@@ -58,27 +58,36 @@ public struct SessionStore: Sendable {
 }
 
 /// API key storage in the login Keychain.
+/// API keys, one per AI service (`AIProvider.rawValue`).
 public protocol KeyStoring: Sendable {
-    func read() -> String?
-    func save(_ key: String) throws
-    func delete()
+    func read(for provider: String) -> String?
+    func save(_ key: String, for provider: String) throws
+    func delete(for provider: String)
+    /// Moves a key saved before keys were per service to `provider`.
+    func migrateLegacy(to provider: String)
+}
+
+public extension KeyStoring {
+    func migrateLegacy(to provider: String) {}
 }
 
 public struct KeychainKeyStore: KeyStoring {
     let service: String
-    let account: String
+    /// Account of the single key stored before 2026-10-19.
+    static let legacyAccount = "ai-api-key"
 
-    public init(service: String = "com.yamax.veer.ai-editor", account: String = "ai-api-key") {
+    public init(service: String = "com.yamax.veer.ai-editor") {
         self.service = service
-        self.account = account
     }
 
-    var query: [String: Any] {
+    func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
     }
 
-    public func read() -> String? {
-        var query = query
+    static func account(_ provider: String) -> String { "\(legacyAccount).\(provider)" }
+
+    func read(account: String) -> String? {
+        var query = query(account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
@@ -86,16 +95,24 @@ public struct KeychainKeyStore: KeyStoring {
         return String(data: data, encoding: .utf8)
     }
 
-    public func save(_ key: String) throws {
-        delete()
-        var attributes = query
+    func save(_ key: String, account: String) throws {
+        SecItemDelete(query(account) as CFDictionary)
+        var attributes = query(account)
         attributes[kSecValueData as String] = Data(key.utf8)
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else { throw EditorError("无法保存到钥匙串（错误 \(status)）。") }
     }
 
-    public func delete() { SecItemDelete(query as CFDictionary) }
+    public func read(for provider: String) -> String? { read(account: Self.account(provider)) }
+    public func save(_ key: String, for provider: String) throws { try save(key, account: Self.account(provider)) }
+    public func delete(for provider: String) { SecItemDelete(query(Self.account(provider)) as CFDictionary) }
+
+    public func migrateLegacy(to provider: String) {
+        guard let legacy = read(account: Self.legacyAccount) else { return }
+        if read(for: provider) == nil { try? save(legacy, for: provider) }
+        if read(for: provider) != nil { SecItemDelete(query(Self.legacyAccount) as CFDictionary) }
+    }
 }
 
 /// Traffic and expiry reported by a subscription's `subscription-userinfo` header.

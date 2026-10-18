@@ -107,18 +107,26 @@ struct ComposerView: View {
         @Bindable var store = store
         return Menu {
             Picker("解析方式", selection: $store.useAI) {
-                Text(store.aiConfigured ? "AI · \(store.settings.model)" : "AI（未配置）").tag(true)
+                Text(store.aiConfigured ? "AI · \(store.settings.provider.title)" : "AI（未配置）").tag(true)
                 Text("本地解析").tag(false)
             }
             .pickerStyle(.inline)
-            Toggle("深度思考（\(store.settings.effectiveReasoningModel)）", isOn: $store.deepThinking)
-                .disabled(!store.useAI)
+            Divider()
+            Picker("模型 · \(store.settings.provider.title)", selection: Binding(get: { store.settings.choice.id }, set: { id in
+                if let choice = composerChoices.first(where: { $0.id == id }) { store.settings.select(choice) }
+                store.useAI = true
+            })) {
+                ForEach(composerChoices) { choice in
+                    Label(choice.title, systemImage: choice.thinking ? "brain" : "sparkles").tag(choice.id)
+                }
+            }
+            .pickerStyle(.inline)
+            .disabled(!store.aiConfigured)
             Divider()
             Button("AI 设置…") { openSettings() }
         } label: {
-            Label(store.effectiveUseAI ? (store.deepThinking ? "AI · \(store.settings.effectiveReasoningModel) · 深度思考" : "AI · \(store.settings.model)")
-                  : (store.useAI ? "本地解析 · 配置 AI" : "本地解析"),
-                  systemImage: store.effectiveUseAI ? (store.deepThinking ? "brain" : "sparkles") : "text.magnifyingglass")
+            Label(store.effectiveUseAI ? "AI · \(store.settings.modelLabel)" : (store.useAI ? "本地解析 · 配置 AI" : "本地解析"),
+                  systemImage: store.effectiveUseAI ? (store.settings.thinks ? "brain" : "sparkles") : "text.magnifyingglass")
                 .font(.callout)
                 .padding(.horizontal, Spacing.sm + Spacing.xxs)
                 .padding(.vertical, Spacing.xs)
@@ -127,7 +135,12 @@ struct ComposerView: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .fixedSize()
-        .help("选择用 AI 还是本地规则解析指令")
+        .help("选择解析方式与模型")
+    }
+
+    /// Suggested models plus the fetched list when it is short enough for a menu.
+    private var composerChoices: [ModelChoice] {
+        store.settings.choices(includingFetched: store.settings.fetchedModels.count <= 16)
     }
 
     private func pick(_ item: CompletionItem) {
