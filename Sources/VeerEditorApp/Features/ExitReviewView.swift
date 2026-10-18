@@ -10,6 +10,14 @@ struct ExitReviewView: View {
             VStack(alignment: .leading, spacing: Spacing.xl) {
                 if let draft = store.draft {
                     header(draft)
+                    if let note = store.current?.importNote {
+                        StatusBadge(kind: .info, text: note)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(Spacing.md)
+                            .background(Color.statusInfo.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).strokeBorder(Color.statusInfo.opacity(0.25)))
+                    }
                     if !draft.warnings.isEmpty {
                         VStack(alignment: .leading, spacing: Spacing.sm) {
                             ForEach(draft.warnings, id: \.self) { warning in

@@ -34,6 +34,8 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
     public var regionOverrides: [String: Region]
     public var exitsConfirmed: Bool
     public var turns: [Turn]
+    /// Set when the import was converted (Base64 / share links / node list) rather than used as-is.
+    public var importNote: String?
 
     public init(title: String, source: Source, text: String, now: Date = .now) {
         id = UUID()

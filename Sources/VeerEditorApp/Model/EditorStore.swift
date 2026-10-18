@@ -183,9 +183,13 @@ final class EditorStore {
         }
     }
 
+    /// Detects the format (Mihomo YAML, node list, Base64 subscription, share links) and converts
+    /// to a full Mihomo configuration when needed.
     private func addSession(title: String, source: Session.Source, text: String) throws {
-        _ = try ConfigDocument.parse(text)
-        let session = Session(title: title, source: source, text: text)
+        let imported = try ConfigImporter.normalize(text)
+        _ = try ConfigDocument.parse(imported.text)
+        var session = Session(title: title, source: source, text: imported.text)
+        session.importNote = imported.note
         sessions.insert(session, at: 0)
         selectedID = session.id
         showingStart = false

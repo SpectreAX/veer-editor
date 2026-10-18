@@ -75,7 +75,7 @@ struct EditorCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("新建导入") { store.newImport() }.keyboardShortcut("n")
             Button("导入配置文件…") { ImportPanel.open(store: store) }.keyboardShortcut("o")
-            Button("粘贴 YAML 导入…") { store.showingPasteSheet = true }.keyboardShortcut("v", modifiers: [.command, .shift])
+            Button("粘贴配置导入…") { store.showingPasteSheet = true }.keyboardShortcut("v", modifiers: [.command, .shift])
             Button("从订阅链接导入…") { store.showingSubscriptionSheet = true }
             Divider()
             Button("导出配置副本…") { store.requestExport() }.keyboardShortcut("e").disabled(store.current == nil)
@@ -106,9 +106,10 @@ struct EditorCommands: Commands {
 enum ImportPanel {
     static func open(store: EditorStore) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.yaml, .plainText]
+        // Any file: subscriptions are often saved as .txt or without an extension; content decides.
+        panel.allowedContentTypes = []
         panel.allowsMultipleSelection = false
-        panel.message = "选择 Mihomo / Clash Meta 配置文件（YAML，最大 2 MB）"
+        panel.message = "选择 Mihomo / Clash 配置、Base64 订阅或分享链接列表（最大 2 MB）"
         panel.prompt = "导入"
         if panel.runModal() == .OK, let url = panel.url { store.importFile(url) }
     }

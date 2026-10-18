@@ -133,6 +133,19 @@ struct StoreTests {
         #expect(try String(contentsOf: source, encoding: .utf8) == SampleConfig.text)
     }
 
+    @Test func base64SubscriptionsImportAsGeneratedConfigs() throws {
+        let store = makeStore()
+        let links = "trojan://pw@jp.example.invalid:443?sni=jp.example.invalid#JP 01\nss://\(Data("aes-128-gcm:pw".utf8).base64EncodedString())@us.example.invalid:8388#US 01"
+        store.importText(Data(links.utf8).base64EncodedString())
+        let session = try #require(store.current)
+        #expect(session.title == "粘贴的配置")
+        #expect(session.importNote?.contains("Base64 订阅") == true)
+        #expect(store.draft?.targets.map(\.name).contains("日本节点") == true)
+        #expect(store.regions["日本节点"] == .jp)
+        store.importText("not a config")
+        #expect(store.importError?.contains("无法识别") == true)
+    }
+
     @Test func commandsRouteToTheInspector() {
         let store = makeStore()
         store.send("/test www.example.com")

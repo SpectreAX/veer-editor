@@ -122,6 +122,14 @@ enum SnapshotRunner {
         store.showingSubscriptionSheet = false
         store.importError = nil
         await settle(0.4)
+        let links = [
+            "trojan://pw@jp.example.invalid:443?sni=jp.example.invalid#🇯🇵 东京 Trojan",
+            "hysteria2://auth@hk.example.invalid:443?sni=hk.example.invalid#🇭🇰 香港 Hy2",
+            "vless://11111111-1111-1111-1111-111111111111@us.example.invalid:443?security=tls&type=ws&path=%2Fws#🇺🇸 美国 VLESS",
+            "wireguard://key@wg.example.invalid:51820#WG",
+        ].joined(separator: "\n")
+        store.importText(Data(links.utf8).base64EncodedString())
+        await shot("21-base64-import")
         store.newImport()
         await shot("20-start-with-sessions")
         store.select(store.sessions[0].id)

@@ -117,7 +117,8 @@ public struct SubscriptionFetcher: Sendable {
         let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url, timeoutInterval: 30)
-        request.setValue("Veer-AI-Editor/1.0 (Mihomo)", forHTTPHeaderField: "User-Agent")
+        // Many subscription services return Mihomo YAML only to clients that identify as clash/mihomo.
+        request.setValue("Veer-AI-Editor/1.0 (compatible; clash.meta; mihomo)", forHTTPHeaderField: "User-Agent")
         let bytes: URLSession.AsyncBytes, response: URLResponse
         do { (bytes, response) = try await session.bytes(for: request) } catch {
             throw EditorError("无法下载订阅：网络错误或超时。")
@@ -131,9 +132,6 @@ public struct SubscriptionFetcher: Sendable {
             if data.count > ConfigDocument.maxBytes { throw EditorError("订阅内容超过 2 MB。") }
         }
         guard let text = String(data: data, encoding: .utf8) else { throw EditorError("订阅内容不是 UTF-8 文本。") }
-        if !text.contains(":") && text.range(of: #"^[A-Za-z0-9+/=\s]+$"#, options: .regularExpression) != nil {
-            throw EditorError("这是 Base64 编码的节点列表，不是 Mihomo YAML 配置。Veer 不转换这类订阅。")
-        }
         return text
     }
 }

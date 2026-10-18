@@ -25,7 +25,7 @@ struct StartView: View {
                     .keyboardShortcut("o")
 
                     HStack(spacing: Spacing.sm) {
-                        Button("粘贴 YAML") { store.showingPasteSheet = true }
+                        Button("粘贴配置") { store.showingPasteSheet = true }
                         Button("订阅链接") { store.showingSubscriptionSheet = true }
                         Button("试用示例配置") { store.loadSample() }
                     }
@@ -37,7 +37,7 @@ struct StartView: View {
                         .frame(maxWidth: 460)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("也可以把 .yaml 文件拖到这里").font(.callout).foregroundStyle(.tertiary)
+                Text("也可以把配置或订阅文件拖到这里").font(.callout).foregroundStyle(.tertiary)
             }
             .padding(Spacing.xxl)
             Spacer(minLength: Spacing.xl)
@@ -95,7 +95,7 @@ struct SubscriptionSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
             Text("从订阅链接导入").font(.headline)
-            Text("链接需要直接返回 Mihomo / Clash Meta YAML。Veer 不跟随重定向，不转换 Base64 节点列表，最大 2 MB。链接本身不会被保存。")
+            Text("支持返回 Mihomo / Clash YAML、Base64 订阅或分享链接列表的地址，Veer 会自动识别格式。不跟随重定向，最大 2 MB。链接本身不会被保存。")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("https://", text: $link)
                 .textFieldStyle(.roundedBorder)
@@ -130,7 +130,8 @@ struct PasteSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
-            Text("粘贴 YAML 配置").font(.headline)
+            Text("粘贴配置").font(.headline)
+            Text("可以是 Mihomo / Clash YAML、Base64 订阅内容或分享链接（每行一个），Veer 会自动识别。").font(.callout).foregroundStyle(.secondary)
             TextEditor(text: $text)
                 .font(Typography.code)
                 .scrollContentBackground(.hidden)
@@ -154,7 +155,7 @@ struct PasteSheet: View {
         .frame(width: 560)
         .onAppear {
             store.importError = nil
-            if let clip = NSPasteboard.general.string(forType: .string), clip.contains(":"), clip.utf8.count < ConfigDocument.maxBytes { text = clip }
+            if let clip = NSPasteboard.general.string(forType: .string), clip.utf8.count < ConfigDocument.maxBytes, (try? ConfigImporter.normalize(clip)) != nil { text = clip }
         }
     }
 }

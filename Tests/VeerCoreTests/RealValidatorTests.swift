@@ -16,4 +16,12 @@ struct RealValidatorTests {
         #expect(broken.status == .failed)
         #expect(!(broken.detail ?? "").contains("placeholder-password"))
     }
+
+    /// Configs generated from share links must pass Mihomo's own parser.
+    @Test func generatedConfigsPassMihomo() async throws {
+        let validator = MihomoValidator()
+        let result = try ConfigImporter.normalize(Links.all)
+        let check = await validator.validate(result.text)
+        #expect(check.status == .passed, "\(check.message) \(check.detail ?? "")")
+    }
 }
