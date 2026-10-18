@@ -151,45 +151,19 @@ struct AISettingsPane: View {
     }
 }
 
-/// Entering a key: a full-width field (with show/hide), then "remember" and Save on one line.
+/// Entering a key: a form field like 地址, then "remember" and Save on the next row.
 struct KeyEntryRow: View {
     let provider: String
     @Binding var key: String
     @Binding var remember: Bool
     let error: String?
     let save: () -> Void
-    @State private var revealed = false
-    @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("API Key")
-            HStack(spacing: Spacing.sm) {
-                Group {
-                    if revealed {
-                        TextField("API Key", text: $key, prompt: Text(""))
-                    } else {
-                        SecureField("API Key", text: $key, prompt: Text(""))
-                    }
-                }
-                .labelsHidden()
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.large)
-                .font(Typography.code)
-                .focused($focused)
-                .onSubmit(save)
-                .accessibilityLabel("\(provider) 的 API Key")
-                Button { revealed.toggle(); focused = true } label: {
-                    Image(systemName: revealed ? "eye.slash" : "eye")
-                }
-                .buttonStyle(.borderless)
-                .help(revealed ? "隐藏 API Key" : "显示 API Key")
-                .accessibilityLabel(revealed ? "隐藏 API Key" : "显示 API Key")
-            }
-            if let error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(Color.statusFailure)
-            }
+        SecureField("API Key", text: $key, prompt: Text("sk-**********"))
+            .onSubmit(save)
+            .accessibilityLabel("\(provider) 的 API Key")
+        VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack(spacing: Spacing.md) {
                 Toggle("记住 API Key", isOn: $remember)
                     .toggleStyle(.checkbox)
@@ -199,10 +173,13 @@ struct KeyEntryRow: View {
                     .tint(.veerAccent)
                     .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(Color.statusFailure)
+            }
             Text(remember ? "保存在本机，只有你的用户账户可以读取。" : "只在本次运行有效，退出后需要重新填写。")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.vertical, Spacing.xxs)
     }
 }
 
