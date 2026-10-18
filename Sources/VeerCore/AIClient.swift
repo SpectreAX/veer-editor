@@ -32,11 +32,27 @@ public struct AISettings: Sendable, Codable, Equatable {
             }
         }
         public var needsKey: Bool { self != .ollama }
+        /// A reasoning model for deep thinking; nil means "use the normal model".
+        public var suggestedReasoningModel: String? {
+            switch self {
+            case .openAI: "o4-mini"
+            case .deepSeek: "deepseek-reasoner"
+            case .openRouter: "deepseek/deepseek-r1"
+            case .ollama, .custom: nil
+            }
+        }
     }
 
     public var preset: Preset
     public var baseURL: String
     public var model: String
+    /// Model used when deep thinking is on; nil means the preset's suggestion (or `model`).
+    public var reasoningModel: String?
+
+    public var effectiveReasoningModel: String {
+        if let reasoningModel, !reasoningModel.trimmingCharacters(in: .whitespaces).isEmpty { return reasoningModel }
+        return preset.suggestedReasoningModel ?? model
+    }
 
     public init(preset: Preset = .deepSeek, baseURL: String? = nil, model: String? = nil) {
         self.preset = preset
@@ -157,26 +173,39 @@ public struct AIClient: Sendable {
         return components.url!
     }
 
-    public func makeRequest(settings: AISettings, apiKey: String?, system: String, history: [(role: String, content: String)], prompt: String) throws -> URLRequest {
+    public func makeRequest(settings: AISettings, apiKey: String?, system: String, history: [(role: String, content: String)], prompt: String,
+                            deepThinking: Bool = false, followUps: [(role: String, content: String)] = []) throws -> URLRequest {
         if settings.preset.needsKey && (apiKey ?? "").trimmingCharacters(in: .whitespaces).isEmpty { throw AIFailure.missingKey }
-        guard !settings.model.trimmingCharacters(in: .whitespaces).isEmpty else { throw AIFailure.invalidEndpoint("请填写模型名称。") }
-        var request = URLRequest(url: try Self.endpoint(for: settings.baseURL), timeoutInterval: 60)
+        let model = deepThinking ? settings.effectiveReasoningModel : settings.model
+        guard !model.trimmingCharacters(in: .whitespaces).isEmpty else { throw AIFailure.invalidEndpoint("请填写模型名称。") }
+        // Reasoning models take longer and some reject temperature / JSON mode.
+        var request = URLRequest(url: try Self.endpoint(for: settings.baseURL), timeoutInterval: deepThinking ? 180 : 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let apiKey, !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
         var messages: [[String: String]] = [["role": "system", "content": system]]
         messages += history.map { ["role": $0.role, "content": $0.content] }
         messages.append(["role": "user", "content": prompt])
-        let body: [String: Any] = [
-            "model": settings.model, "temperature": 0, "stream": false,
-            "response_format": ["type": "json_object"], "messages": messages,
-        ]
+        messages += followUps.map { ["role": $0.role, "content": $0.content] }
+        var body: [String: Any] = ["model": model, "stream": false, "messages": messages]
+        if deepThinking {
+            if settings.preset == .openAI { body["reasoning_effort"] = "medium" }
+        } else {
+            body["temperature"] = 0
+            body["response_format"] = ["type": "json_object"]
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
 
     /// Sends one request and returns the assistant message content.
     public func complete(_ request: URLRequest) async throws -> String {
+        try await completeWithReasoning(request).content
+    }
+
+    /// Content plus the provider's reasoning text when it returns one (DeepSeek `reasoning_content`,
+    /// OpenRouter `reasoning`).
+    public func completeWithReasoning(_ request: URLRequest) async throws -> (content: String, reasoning: String?) {
         let data: Data, response: HTTPURLResponse
         do {
             (data, response) = try await transport.send(request)
@@ -209,10 +238,12 @@ public struct AIClient: Sendable {
         if let finish = choice["finish_reason"] as? String, finish != "stop" {
             throw AIFailure.invalidResponse("AI 的回答没有完整结束，请缩短指令或检查模型设置后重试。")
         }
-        guard let content = (choice["message"] as? [String: Any])?["content"] as? String, !content.isEmpty, content.count <= 100_000 else {
+        let message = choice["message"] as? [String: Any]
+        guard let content = message?["content"] as? String, !content.isEmpty, content.count <= 100_000 else {
             throw AIFailure.invalidResponse("AI 返回的内容为空或超过长度限制。")
         }
-        return content
+        let reasoning = (message?["reasoning_content"] as? String) ?? (message?["reasoning"] as? String)
+        return (content, reasoning.map { String($0.prefix(20_000)) })
     }
 
     /// Minimal request with no configuration data: confirms key, model and JSON mode work.

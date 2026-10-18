@@ -12,6 +12,8 @@ public struct ChangeItem: Identifiable, Sendable, Codable, Hashable {
         public let members: [String]
         /// Member count per region display name, for the review card.
         public let regionCounts: [String: Int]
+        /// Excluded region names, for the review card.
+        public var excluded: [String]? = nil
     }
 
     public struct ProviderInfo: Sendable, Codable, Hashable {
@@ -70,16 +72,23 @@ public enum PlanApplier {
                 guard let target = base.target(id: id) else { throw EditorError("新策略组引用了当前配置中不存在的出口。") }
                 if !members.contains(target.name) { members.append(target.name) }
             }
-            if !spec.regions.isEmpty {
+            if !spec.regions.isEmpty || !spec.excludeRegions.isEmpty {
                 // Prefer the config's own regional groups (台湾自动, 香港节点 …), in the order of the
-                // requested regions; fall back to individual nodes when there are none.
+                // requested regions; fall back to individual nodes when there are none. With only
+                // exclusions, every known region except those (unknown-region exits are left out,
+                // since they might be in an excluded region).
+                let excluded = Set(spec.excludeRegions)
+                let wanted = spec.regions.isEmpty
+                    ? Region.allCases.filter { $0 != .unknown && !excluded.contains($0) }
+                    : spec.regions.filter { !excluded.contains($0) }
                 func inRegions(_ kind: Target.Kind) -> [String] {
-                    spec.regions.flatMap { wanted in base.targets.filter { $0.kind == kind && region(of: $0.name) == wanted }.map(\.name) }
+                    wanted.flatMap { place in base.targets.filter { $0.kind == kind && region(of: $0.name) == place }.map(\.name) }
                 }
                 var regional = inRegions(.group)
                 if regional.isEmpty { regional = inRegions(.node) }
                 guard !regional.isEmpty else {
-                    throw EditorError("当前配置里没有标记为\(spec.regions.map(\.displayName).joined(separator: "、"))的节点或策略组，无法新建“\(spec.name)”。可以在检查器的“出口”里更正地区。")
+                    let description = spec.regions.isEmpty ? "除\(spec.excludeRegions.map(\.displayName).joined(separator: "、"))以外地区" : spec.regions.map(\.displayName).joined(separator: "、")
+                    throw EditorError("当前配置里没有标记为\(description)的节点或策略组，无法新建“\(spec.name)”。可以在检查器的“出口”里更正地区。")
                 }
                 for name in regional where !members.contains(name) { members.append(name) }
             }
@@ -91,7 +100,8 @@ public enum PlanApplier {
             for member in members { counts[region(of: member) == .unknown ? "未指定地区" : region(of: member).displayName, default: 0] += 1 }
             groupItems[index] = ChangeItem(id: index, kind: .group, subject: name, matchType: "", match: "", targetName: nil, targetID: spec.id,
                                            replaced: [], rule: nil, provider: nil,
-                                           group: .init(name: name, type: spec.type, members: members, regionCounts: counts))
+                                           group: .init(name: name, type: spec.type, members: members, regionCounts: counts,
+                                                        excluded: spec.excludeRegions.isEmpty ? nil : spec.excludeRegions.map(\.displayName)))
             if isAccepted(index) { groupAdditions.append((name, spec.type, members)) }
         }
 

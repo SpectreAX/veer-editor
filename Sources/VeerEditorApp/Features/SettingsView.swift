@@ -68,6 +68,12 @@ struct AISettingsPane: View {
                 }
             }
             Toggle("对话默认使用 AI 解析", isOn: $store.useAI)
+            Toggle("深度思考", isOn: $store.deepThinking)
+            TextField("思考模型", text: Binding(get: { store.settings.reasoningModel ?? "" },
+                                               set: { store.settings.reasoningModel = $0.isEmpty ? nil : $0 }),
+                      prompt: Text(store.settings.preset.suggestedReasoningModel ?? store.settings.model))
+            Text("深度思考使用推理模型（如 DeepSeek 的 deepseek-reasoner），更擅长理解复杂指令，但更慢、费用更高。AI 回答无法使用时，Veer 会把问题发回让它修正一次。")
+                .font(.caption).foregroundStyle(.secondary)
             Text("测试连接只发送一句固定的测试文字，不包含任何配置。地址必须是 HTTPS，本机服务可以用 HTTP。")
                 .font(.caption).foregroundStyle(.secondary)
         }

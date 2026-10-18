@@ -18,7 +18,7 @@ struct SystemPromptTests {
         let (_, context) = try context()
         let prompt = SystemPrompt.build(config: AnonymizedConfig.make(document: try ConfigDocument.parse(SampleConfig.text), regions: regionsOfSample()).yaml)
         #expect(prompt.contains("Veer 不是 OpenClash"))
-        #expect(prompt.contains(#"{"schemaVersion":1,"operations":[…]}"#))
+        #expect(prompt.contains(#"{"understanding":"…","schemaVersion":1,"operations":[…]}"#))
         #expect(prompt.contains(SystemPrompt.askForExit))
         #expect(prompt.contains("Ruleset/ 前缀"))
         #expect(prompt.contains("{id: target-0, name: 策略组1（日本）}") || prompt.contains("name: 策略组1（日本）"))
@@ -38,7 +38,7 @@ struct SystemPromptTests {
         let direct = doc.target(named: "DIRECT")!.id, reject = doc.target(named: "REJECT")!.id
         let section = prompt.components(separatedBy: "# 示例")[1].components(separatedBy: "# Targets")[0]
         let examples = section.components(separatedBy: "\n").filter { $0.hasPrefix("{\"") }
-        #expect(examples.count == 5)
+        #expect(examples.count == 6)
         for line in examples {
             let json = line.replacingOccurrences(of: "<DIRECT 的 id>", with: direct).replacingOccurrences(of: "<REJECT 的 id>", with: reject)
             switch try EditPlan.decodeReply(json) {

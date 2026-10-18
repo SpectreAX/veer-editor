@@ -190,6 +190,28 @@ enum SnapshotRunner {
             await settle(0.4)
         }
 
+        // "All foreign AI services, excluding Hong Kong and Macau" (reported misunderstanding).
+        let regional = """
+        proxies:
+          - {name: "🇭🇰 香港 01", type: ss, server: hk.example.invalid, port: 1, cipher: aes-128-gcm, password: p}
+          - {name: "🇲🇴 澳门 01", type: ss, server: mo.example.invalid, port: 1, cipher: aes-128-gcm, password: p}
+          - {name: "🇯🇵 东京 01", type: ss, server: jp.example.invalid, port: 1, cipher: aes-128-gcm, password: p}
+          - {name: "🇺🇸 洛杉矶 01", type: ss, server: us.example.invalid, port: 1, cipher: aes-128-gcm, password: p}
+        proxy-groups:
+          - {name: 🚀 Proxy, type: select, proxies: [香港自动, 澳门节点, 日本节点, 美国自动]}
+          - {name: 香港自动, type: url-test, url: 'https://www.gstatic.com/generate_204', interval: 300, proxies: ["🇭🇰 香港 01"]}
+          - {name: 澳门节点, type: select, proxies: ["🇲🇴 澳门 01"]}
+          - {name: 日本节点, type: select, proxies: ["🇯🇵 东京 01"]}
+          - {name: 美国自动, type: url-test, url: 'https://www.gstatic.com/generate_204', interval: 300, proxies: ["🇺🇸 洛杉矶 01"]}
+        rules:
+          - MATCH,🚀 Proxy
+        """
+        store.importText(regional, title: "AI-exclude.yaml")
+        store.confirmExits()
+        store.send("所有国外AI服务，策略组排除所有港澳节点")
+        await waitIdle(store)
+        await shot("27-exclude-regions")
+
         store.newImport()
         await shot("20-start-with-sessions")
         store.select(store.sessions[0].id)

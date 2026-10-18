@@ -23,13 +23,30 @@ public struct EditPlan: Codable, Sendable, Hashable {
         public let type: String
         public let regions: [Region]
         public let members: [String]
+        /// Regions to leave out. Alone, it means "every known region except these"
+        /// (e.g. AI services excluding Hong Kong and Macau).
+        public let excludeRegions: [Region]
 
-        public init(id: String, name: String, type: String = "select", regions: [Region] = [], members: [String] = []) {
+        public init(id: String, name: String, type: String = "select", regions: [Region] = [], members: [String] = [], excludeRegions: [Region] = []) {
             self.id = id
             self.name = name
             self.type = type
             self.regions = regions
             self.members = members
+            self.excludeRegions = excludeRegions
+        }
+
+        enum CodingKeys: String, CodingKey { case id, name, type, regions, members, excludeRegions }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            name = try container.decode(String.self, forKey: .name)
+            type = try container.decode(String.self, forKey: .type)
+            regions = try container.decode([Region].self, forKey: .regions)
+            members = try container.decode([String].self, forKey: .members)
+            // Sessions saved before 2026-10-18 have no exclusions.
+            excludeRegions = try container.decodeIfPresent([Region].self, forKey: .excludeRegions) ?? []
         }
     }
 
@@ -64,30 +81,41 @@ extension EditPlan {
     /// Strictly decodes a model reply. Unknown fields, mixed clarification/plan replies and
     /// malformed operations are rejected rather than repaired.
     public static func decodeReply(_ content: String) throws -> AssistantReply {
+        try decodeReplyWithUnderstanding(content).reply
+    }
+
+    /// Also returns the model's one-line `understanding` (how it read the instruction), if given.
+    public static func decodeReplyWithUnderstanding(_ content: String) throws -> (reply: AssistantReply, understanding: String?) {
         var text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("```") {
             text = text.replacingOccurrences(of: #"^```(?:json)?\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
             text = text.replacingOccurrences(of: #"\s*```$"#, with: "", options: .regularExpression)
+        }
+        // Reasoning models sometimes add prose around the JSON; fall back to the outermost object.
+        if (try? JSONSerialization.jsonObject(with: Data(text.utf8))) == nil,
+           let open = text.firstIndex(of: "{"), let close = text.lastIndex(of: "}"), open < close {
+            text = String(text[open...close])
         }
         guard let data = text.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               let root = object as? [String: Any] else {
             throw EditorError("AI 没有返回有效的结构化计划，请换一种说法再试。")
         }
+        let understanding = (root["understanding"] as? String).map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(400)) }
         if let clarification = root["clarification"] {
-            guard root.count == 1, let question = clarification as? String,
+            guard Set(root.keys).isSubset(of: ["clarification", "understanding"]), let question = clarification as? String,
                   !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw EditorError("AI 同时返回了问题和修改，已拒绝。请重新生成。")
             }
-            return .clarification(String(question.prefix(500)), options: [])
+            return (.clarification(String(question.prefix(500)), options: []), understanding)
         }
-        guard Set(root.keys).isSubset(of: ["schemaVersion", "operations"]),
+        guard Set(root.keys).isSubset(of: ["schemaVersion", "operations", "understanding"]),
               (root["schemaVersion"] as? NSNumber)?.intValue == 1,
               let rawOperations = root["operations"] as? [Any],
               (1...32).contains(rawOperations.count) else {
             throw EditorError("AI 返回的修改计划格式无效，请重新生成。")
         }
-        return .plan(EditPlan(operations: try rawOperations.map(decodeOperation)))
+        return (.plan(EditPlan(operations: try rawOperations.map(decodeOperation))), understanding)
     }
 
     static func decodeOperation(_ raw: Any) throws -> Operation {
@@ -109,7 +137,7 @@ extension EditPlan {
             try fields(["kind", "matchType", "match"])
             return .removeRule(matchType: try string("matchType").uppercased(), match: try string("match"))
         case "group":
-            try fields(["kind", "id", "name", "type", "regions", "members"])
+            try fields(["kind", "id", "name", "type", "regions", "members", "excludeRegions"])
             let id = try string("id"), name = try string("name").trimmingCharacters(in: .whitespaces)
             let type = (op["type"] as? String ?? "select").lowercased()
             guard id.range(of: #"^new-[0-9]{1,2}$"#, options: .regularExpression) != nil else { throw EditorError("新策略组的 id 必须是 new-1、new-2 这样的形式。") }
@@ -117,14 +145,16 @@ extension EditPlan {
                 throw EditorError("新策略组的名称为空、过长或包含逗号。")
             }
             guard NewGroup.types.contains(type) else { throw EditorError("新策略组只支持 select、url-test 或 fallback。") }
-            let regionCodes = op["regions"] as? [String] ?? []
-            let regions = try regionCodes.map { code -> Region in
-                guard let region = Region(rawValue: code.uppercased()), region != .unknown else { throw EditorError("不支持的地区代码：\(code.prefix(10))") }
-                return region
+            func regionList(_ key: String) throws -> [Region] {
+                try (op[key] as? [String] ?? []).map { code -> Region in
+                    guard let region = Region(rawValue: code.uppercased()), region != .unknown else { throw EditorError("不支持的地区代码：\(code.prefix(10))") }
+                    return region
+                }
             }
+            let regions = try regionList("regions"), excluded = try regionList("excludeRegions")
             let members = op["members"] as? [String] ?? []
-            guard !regions.isEmpty || !members.isEmpty else { throw EditorError("新策略组需要 regions 或 members。") }
-            return .group(NewGroup(id: id, name: name, type: type, regions: regions, members: members))
+            guard !regions.isEmpty || !members.isEmpty || !excluded.isEmpty else { throw EditorError("新策略组需要 regions、excludeRegions 或 members。") }
+            return .group(NewGroup(id: id, name: name, type: type, regions: regions, members: members, excludeRegions: excluded))
         case "rule_set":
             if op["url"] != nil {
                 try fields(["kind", "url", "behavior", "targetId"])
@@ -151,6 +181,7 @@ extension EditPlan {
                 var object: [String: Any] = ["kind": "group", "id": group.id, "name": group.name, "type": group.type]
                 if !group.regions.isEmpty { object["regions"] = group.regions.map(\.rawValue) }
                 if !group.members.isEmpty { object["members"] = group.members }
+                if !group.excludeRegions.isEmpty { object["excludeRegions"] = group.excludeRegions.map(\.rawValue) }
                 return object
             case let .ruleSet(.url(url, behavior), targetId):
                 var object: [String: Any] = ["kind": "rule_set", "url": url, "targetId": targetId]

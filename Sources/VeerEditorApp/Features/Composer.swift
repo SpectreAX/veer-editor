@@ -111,11 +111,14 @@ struct ComposerView: View {
                 Text("本地解析").tag(false)
             }
             .pickerStyle(.inline)
+            Toggle("深度思考（\(store.settings.effectiveReasoningModel)）", isOn: $store.deepThinking)
+                .disabled(!store.useAI)
             Divider()
             Button("AI 设置…") { openSettings() }
         } label: {
-            Label(store.effectiveUseAI ? "AI · \(store.settings.model)" : (store.useAI ? "本地解析 · 配置 AI" : "本地解析"),
-                  systemImage: store.effectiveUseAI ? "sparkles" : "text.magnifyingglass")
+            Label(store.effectiveUseAI ? (store.deepThinking ? "AI · \(store.settings.effectiveReasoningModel) · 深度思考" : "AI · \(store.settings.model)")
+                  : (store.useAI ? "本地解析 · 配置 AI" : "本地解析"),
+                  systemImage: store.effectiveUseAI ? (store.deepThinking ? "brain" : "sparkles") : "text.magnifyingglass")
                 .font(.callout)
                 .padding(.horizontal, Spacing.sm + Spacing.xxs)
                 .padding(.vertical, Spacing.xs)

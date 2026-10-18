@@ -46,6 +46,29 @@ struct AssistantTurn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             StepsView(turn: turn, expanded: $stepsExpanded)
+            if let reasoning = turn.reasoning, !reasoning.isEmpty {
+                DisclosureGroup("模型思考（由 \(turn.mode.label) 提供）") {
+                    ScrollView {
+                        Text(reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(Spacing.sm)
+                    }
+                    .frame(maxHeight: 220)
+                    .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.small))
+                }
+                .font(.callout)
+            }
+            if let understanding = turn.understanding, !understanding.isEmpty {
+                Label { Text(understanding).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) } icon: {
+                    Image(systemName: "lightbulb").foregroundStyle(Color.veerAccent)
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("AI 的理解：\(understanding)")
+            }
+            if let problem = turn.repairedFrom {
+                Label("第一次回答无法使用（\(problem)），已自动让 AI 修正。", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             switch turn.outcome {
             case .running, .note:
                 EmptyView()
@@ -340,7 +363,8 @@ struct ChangeRow: View {
     private var detail: String {
         if let group = item.group {
             let byRegion = group.regionCounts.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: "、")
-            return "包含 \(group.members.count) 个出口：\(byRegion) · 追加到 proxy-groups 末尾，不改动已有策略组"
+            let excluded = group.excluded.map { " · 已排除\($0.joined(separator: "、"))，未指定地区的出口未加入" } ?? ""
+            return "包含 \(group.members.count) 个出口：\(byRegion)\(excluded) · 追加到 proxy-groups 末尾，不改动已有策略组"
         }
         if let provider = item.provider {
             return "规则集 \(provider.sourceLabel) · \(provider.verification.label)"

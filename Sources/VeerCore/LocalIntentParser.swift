@@ -4,6 +4,8 @@ import Foundation
 public enum LocalIntentParser {
     /// Services with a known MetaCubeX geosite set.
     static let services: [(pattern: String, geosite: String)] = [
+        (#"国外\s*ai|ai\s*服务|ai\s*服務|人工智能|^ai\b|\sai\b"#, "category-ai-!cn"),
+        (#"gemini"#, "google-gemini"),
         (#"netflix|奈飞|网飞"#, "netflix"),
         (#"chatgpt|openai"#, "openai"),
         (#"youtube|油管"#, "youtube"),
@@ -35,9 +37,11 @@ public enum LocalIntentParser {
         let exitNames = exits.map(\.name)
         var operations: [EditPlan.Operation] = []
         var newGroupCount = 0
-        for clause in clauses(trimmed, exitNames: exits.map(\.name)) {
-            if clause.matches(#"不要|不走|别走|别用|不使用|除了|除外|except|unless|\bnot\b|don't"#) {
-                throw EditorError("本地解析不支持否定或例外条件。请改用明确的正向指令，或切换到 AI 解析。")
+        for clause in mergeExitOnlyClauses(clauses(trimmed, exitNames: exits.map(\.name)), exitNames: exits.map(\.name)) {
+            // Exclusions with a region ("排除港澳") are handled by resolveExit; other negations are not.
+            let negated = clause.matches(#"不要|不走|别走|别用|不使用|除了|除外|排除|去掉|except|unless|\bnot\b|don't"#)
+            if negated && !Region.allCases.contains(where: { $0.instructionPattern.map(clause.matches) ?? false }) {
+                throw EditorError("本地解析不支持这种否定或例外条件。可以说“排除港澳”这样的地区排除，或切换到 AI 解析。")
             }
             // Strip exit names before looking for domains so names like "hk.example" don't count.
             var scan = clause
@@ -57,13 +61,13 @@ public enum LocalIntentParser {
             let targetID: String
             switch try resolveExit(clause, targets: targets, regions: regions, defaultReject: geosites == ["category-ads-all"]) {
             case .target(let found): targetID = found.id
-            case let .newGroup(groupRegions, members):
+            case let .newGroup(groupRegions, members, excluded):
                 // One service, several regions or exits: a group named after the service holds them all.
                 newGroupCount += 1
                 let id = "new-\(newGroupCount)"
                 let subjects = geosites.map(RuleSetCatalog.displayName(for:)) + domains
                 let name = subjects.isEmpty ? "新策略组" : String(subjects.prefix(3).joined(separator: "、").prefix(60))
-                operations.append(.group(EditPlan.NewGroup(id: id, name: name, regions: groupRegions, members: members.map(\.id))))
+                operations.append(.group(EditPlan.NewGroup(id: id, name: name, regions: groupRegions, members: members.map(\.id), excludeRegions: excluded)))
                 targetID = id
             case .ask(let question, let names):
                 // Each choice rewrites only this clause's exit phrase, so answering never repeats the question.
@@ -85,8 +89,8 @@ public enum LocalIntentParser {
     enum ExitResolution {
         case target(Target)
         case ask(String, [String])
-        /// Several regions and/or named exits for one clause.
-        case newGroup(regions: [Region], members: [Target])
+        /// Several regions and/or named exits for one clause, or "every region except these".
+        case newGroup(regions: [Region], members: [Target], excluded: [Region])
     }
 
     static func resolveExit(_ clause: String, targets: [Target], regions: [String: Region], defaultReject: Bool) throws -> ExitResolution {
@@ -112,8 +116,11 @@ public enum LocalIntentParser {
         if actions > 1 {
             throw EditorError("同一句里既有代理出口又有直连或拦截，请拆成两句。")
         }
+        if clause.matches(#"排除|除了|除去|去掉|不要|不走|不含|别走|except"#), !asked.isEmpty, longestNamed.isEmpty, !direct, !reject {
+            return .newGroup(regions: [], members: [], excluded: asked)
+        }
         if longestNamed.count + asked.count > 1 {
-            return .newGroup(regions: asked, members: longestNamed)
+            return .newGroup(regions: asked, members: longestNamed, excluded: [])
         }
         if direct { return .target(targets.first { $0.name == "DIRECT" }!) }
         if reject || (defaultReject && longestNamed.isEmpty && asked.isEmpty) { return .target(targets.first { $0.name == "REJECT" }!) }
@@ -144,6 +151,20 @@ public enum LocalIntentParser {
         }
         guard let range = prompt.range(of: clause) else { return fixed }
         return prompt.replacingCharacters(in: range, with: fixed)
+    }
+
+    /// "所有国外 AI 服务，策略组排除港澳" splits into a subject-only and an exit-only clause; join a
+    /// clause that names no service or domain onto the previous one.
+    static func mergeExitOnlyClauses(_ clauses: [String], exitNames: [String]) -> [String] {
+        var merged: [String] = []
+        for clause in clauses {
+            var scan = clause
+            for name in exitNames.sorted(by: { $0.count > $1.count }) { scan = scan.replacingOccurrences(of: name, with: " ") }
+            let hasSubject = !matchesOf(#"\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\b"#, in: scan).isEmpty
+                || services.contains { scan.matches($0.pattern) }
+            if !hasSubject, let last = merged.popLast() { merged.append(last + " " + clause) } else { merged.append(clause) }
+        }
+        return merged
     }
 
     /// Splits on separators, but never inside an exit name.

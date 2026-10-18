@@ -220,7 +220,11 @@ struct LocalParserTests {
         #expect(options[0].prompt == "YouTube 走 @日本出口")
         #expect(try parse("节点太卡了换一个") == .outOfScope(LocalIntentParser.outOfScopeMessage))
         guard case .clarification = try parse("Netflix 走德国") else { Issue.record("expected clarification"); return }
-        #expect(throws: EditorError.self) { try parse("Netflix 不要走日本") }
+        // Excluding a region is actionable: a group of every other known region.
+        guard case .plan(let excluded) = try parse("Netflix 不要走日本"), case .group(let exclusion) = excluded.operations.first else {
+            Issue.record("expected exclusion group"); return
+        }
+        #expect(exclusion.excludeRegions == [.jp] && exclusion.regions.isEmpty)
         // Several regions for one service now create a group named after it.
         guard case .plan(let multi) = try parse("Netflix 走日本和美国"), case .group(let group) = multi.operations.first else {
             Issue.record("expected a new group"); return

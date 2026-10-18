@@ -25,7 +25,7 @@ public struct Target: Hashable, Sendable, Codable, Identifiable {
 
 /// Declared or inferred exit region. Never a measured location.
 public enum Region: String, CaseIterable, Sendable, Codable {
-    case jp = "JP", us = "US", hk = "HK", sg = "SG", tw = "TW", kr = "KR", gb = "GB", de = "DE", unknown = "UNKNOWN"
+    case jp = "JP", us = "US", hk = "HK", sg = "SG", tw = "TW", mo = "MO", kr = "KR", gb = "GB", de = "DE", unknown = "UNKNOWN"
 
     public var displayName: String {
         switch self {
@@ -34,6 +34,7 @@ public enum Region: String, CaseIterable, Sendable, Codable {
         case .hk: "香港"
         case .sg: "新加坡"
         case .tw: "台湾"
+        case .mo: "澳门"
         case .kr: "韩国"
         case .gb: "英国"
         case .de: "德国"
@@ -49,6 +50,7 @@ public enum Region: String, CaseIterable, Sendable, Codable {
         case .hk: #"香港|\bhk\b|hong\s*kong|🇭🇰"#
         case .sg: #"新加坡|狮城|\bsg\b|singapore|🇸🇬"#
         case .tw: #"台湾|台北|\btw\b|taiwan|🇹🇼"#
+        case .mo: #"澳门|\bmo\b|macau|macao|🇲🇴"#
         case .kr: #"韩国|首尔|\bkr\b|korea|🇰🇷"#
         case .gb: #"英国|伦敦|\buk\b|\bgb\b|britain|united kingdom|🇬🇧"#
         case .de: #"德国|法兰克福|\bde\b|germany|🇩🇪"#
@@ -61,9 +63,10 @@ public enum Region: String, CaseIterable, Sendable, Codable {
         switch self {
         case .jp: #"日本|日区|\bjp\b|\bjapan\b"#
         case .us: #"美国|美区|\bus\b|\busa\b|united states"#
-        case .hk: #"香港|港区|\bhk\b|hong\s*kong"#
+        case .hk: #"香港|港区|港澳|\bhk\b|hong\s*kong"#
         case .sg: #"新加坡|狮城|\bsg\b|singapore"#
         case .tw: #"台湾|台区|\btw\b|taiwan"#
+        case .mo: #"澳门|港澳|\bmo\b|macau|macao"#
         case .kr: #"韩国|韩区|\bkr\b|korea"#
         case .gb: #"英国|\buk\b|britain"#
         case .de: #"德国|\bgermany\b"#

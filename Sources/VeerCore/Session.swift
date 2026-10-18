@@ -143,6 +143,12 @@ public struct Turn: Codable, Identifiable, Sendable, Equatable {
     public var outcome: Outcome
     public var sentPayload: AIRequestPayload?
     public var duration: TimeInterval?
+    /// The model's one-line reading of the instruction (and its assumptions).
+    public var understanding: String?
+    /// Reasoning returned by a reasoning model when deep thinking was on.
+    public var reasoning: String?
+    /// Set when the first AI answer was unusable and Veer asked again.
+    public var repairedFrom: String?
 
     public init(prompt: String, mode: Mode, steps: [Step], outcome: Outcome = .running, now: Date = .now) {
         id = UUID()

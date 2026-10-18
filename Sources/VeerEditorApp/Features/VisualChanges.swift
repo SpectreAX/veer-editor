@@ -152,14 +152,16 @@ struct RuleChangeRow: View {
         HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
             Image(systemName: added ? "plus.circle.fill" : "minus.circle.fill")
                 .foregroundStyle(added ? Color.veerAccent : Color.statusFailure)
-            Text("#\(change.position)").font(Typography.codeSmall).foregroundStyle(.tertiary).frame(width: 36, alignment: .leading)
-            Tag(text: change.type)
+            Text("#\(change.position)").font(Typography.codeSmall).foregroundStyle(.tertiary).fixedSize()
+            Tag(text: change.type).fixedSize()
             if !change.payload.isEmpty {
                 Text(change.payload).font(Typography.codeSmall).lineLimit(1).truncationMode(.middle)
                     .strikethrough(!added, color: Color.statusFailure.opacity(0.6))
+                    .layoutPriority(1)
+                    .help(change.payload)
             }
             Image(systemName: "arrow.right").imageScale(.small).foregroundStyle(.tertiary)
-            Text(change.target).font(.callout).lineLimit(1).truncationMode(.middle)
+            Text(change.target).font(.callout).lineLimit(1).truncationMode(.tail).help(change.target)
             Spacer(minLength: 0)
         }
         .padding(.vertical, Spacing.xxs)

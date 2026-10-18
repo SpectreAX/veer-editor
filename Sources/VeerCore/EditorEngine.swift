@@ -15,7 +15,16 @@ public struct EditorEngine: Sendable {
     public enum Progress: Sendable {
         case started(Int)
         case finished(Int, detail: String?)
+        /// The model's one-line reading of the instruction.
+        case understanding(String)
+        /// Reasoning text returned by a reasoning model (deep thinking).
+        case reasoning(String)
+        /// The first answer was unusable; Veer sent the error back and asked again.
+        case retrying(String)
     }
+
+    /// How many times an unusable AI answer is sent back with its error before giving up.
+    public static let repairAttempts = 1
 
     public struct Request: Sendable {
         public var prompt: String
@@ -28,6 +37,8 @@ public struct EditorEngine: Sendable {
         public var history: [(role: String, content: String)]
         /// Send literal domains/IPs from existing rules instead of placeholders (off by default).
         public var shareRuleLiterals: Bool
+        /// Use the reasoning model and longer timeout.
+        public var deepThinking: Bool = false
 
         public init(prompt: String, draft: ConfigDocument, regions: [String: Region], useAI: Bool, settings: AISettings, apiKey: String?,
                     history: [(role: String, content: String)] = [], shareRuleLiterals: Bool = false) {
@@ -67,21 +78,40 @@ public struct EditorEngine: Sendable {
             await progress(.finished(0, detail: "超出编辑范围"))
             return .outOfScope(LocalIntentParser.outOfScopeMessage)
         }
-        let reply: AssistantReply
-        if request.useAI {
-            let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
-            let context = anonymized.context
-            let httpRequest = try ai.makeRequest(settings: request.settings, apiKey: request.apiKey,
-                                                 system: AIClient.systemPrompt(config: anonymized.yaml),
-                                                 history: request.history, prompt: context.anonymize(request.prompt))
-            let content = try await ai.complete(httpRequest)
-            try Task.checkCancellation()
-            reply = try EditPlan.decodeReply(content)
-        } else {
-            reply = try LocalIntentParser.parse(request.prompt, targets: request.draft.targets, regions: request.regions)
+        guard request.useAI else {
+            let reply = try LocalIntentParser.parse(request.prompt, targets: request.draft.targets, regions: request.regions)
+            await progress(.finished(0, detail: "本地解析"))
+            return try await handle(reply, request: request, progress: progress)
         }
-        await progress(.finished(0, detail: request.useAI ? "已由 \(request.settings.model) 解析" : "本地解析"))
 
+        let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
+        let system = AIClient.systemPrompt(config: anonymized.yaml)
+        let prompt = anonymized.context.anonymize(request.prompt)
+        let model = request.deepThinking ? request.settings.effectiveReasoningModel : request.settings.model
+        var followUps: [(role: String, content: String)] = []
+        var attempt = 0
+        while true {
+            let httpRequest = try ai.makeRequest(settings: request.settings, apiKey: request.apiKey, system: system, history: request.history,
+                                                 prompt: prompt, deepThinking: request.deepThinking, followUps: followUps)
+            let answer = try await ai.completeWithReasoning(httpRequest)
+            try Task.checkCancellation()
+            if let reasoning = answer.reasoning, !reasoning.isEmpty { await progress(.reasoning(reasoning)) }
+            do {
+                let decoded = try EditPlan.decodeReplyWithUnderstanding(answer.content)
+                if let understanding = decoded.understanding, !understanding.isEmpty { await progress(.understanding(understanding)) }
+                if attempt == 0 { await progress(.finished(0, detail: "已由 \(model) 解析")) }
+                return try await handle(decoded.reply, request: request, progress: progress)
+            } catch let error as EditorError where attempt < Self.repairAttempts {
+                // Send the problem back once instead of showing the user an unusable answer.
+                attempt += 1
+                await progress(.retrying(error.message))
+                followUps += [("assistant", String(answer.content.prefix(8_000))),
+                              ("user", "你上一次的输出无法使用：\(error.message)\n请根据这个问题修正，重新输出一个完整、符合格式的 JSON 对象，不要输出其他内容。")]
+            }
+        }
+    }
+
+    func handle(_ reply: AssistantReply, request: Request, progress: @Sendable (Progress) async -> Void) async throws -> Output {
         switch reply {
         case let .clarification(question, options):
             return .clarification(question, options: options.isEmpty ? Self.suggestedExits(for: request) : options)

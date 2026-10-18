@@ -61,6 +61,8 @@ final class EditorStore {
     var settings: AISettings { didSet { saveSettings() } }
     var useAI: Bool { didSet { UserDefaults.standard.set(useAI, forKey: "useAI") } }
     var validateBeforeExport: Bool { didSet { UserDefaults.standard.set(validateBeforeExport, forKey: "validateBeforeExport") } }
+    /// Use the provider's reasoning model (slower, better at complex instructions).
+    var deepThinking: Bool { didSet { UserDefaults.standard.set(deepThinking, forKey: "deepThinking") } }
     /// Send literal domains/IPs from existing rules to the AI instead of placeholders. Off by default.
     var shareRuleLiterals: Bool { didSet { UserDefaults.standard.set(shareRuleLiterals, forKey: "shareRuleLiterals") } }
     /// Key used only for this app run when the user chose not to save it.
@@ -99,6 +101,7 @@ final class EditorStore {
         useAI = defaults.object(forKey: "useAI") as? Bool ?? false
         validateBeforeExport = defaults.object(forKey: "validateBeforeExport") as? Bool ?? true
         shareRuleLiterals = defaults.object(forKey: "shareRuleLiterals") as? Bool ?? false
+        deepThinking = defaults.object(forKey: "deepThinking") as? Bool ?? false
         keySaved = keyStore.read() != nil
         if persist {
             sessions = store.loadAll()
@@ -361,21 +364,22 @@ final class EditorStore {
         if handleCommand(prompt) { return }
 
         let useAI = effectiveUseAI
-        let mode: Turn.Mode = useAI ? .ai(model: settings.model) : .local
+        let mode: Turn.Mode = useAI ? .ai(model: deepThinking ? settings.effectiveReasoningModel : settings.model) : .local
         let steps = EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: .waiting) }
         var turn = Turn(prompt: prompt, mode: mode, steps: steps)
-        let request = EditorEngine.Request(prompt: prompt, draft: draft, regions: session.regions(for: draft.targets), useAI: useAI,
+        var request = EditorEngine.Request(prompt: prompt, draft: draft, regions: session.regions(for: draft.targets), useAI: useAI,
                                            settings: settings, apiKey: apiKey, history: history(for: session, context: draft),
                                            shareRuleLiterals: shareRuleLiterals)
+        request.deepThinking = useAI && deepThinking
         if useAI { turn.sentPayload = EditorEngine.payload(for: request) }
         invalidatePending(in: &session)
         session.turns.append(turn)
         session.updatedAt = .now
         current = session
 
-        let engine = engine
+        let engine = engine, finalRequest = request
         startTurn(sessionID: session.id, turnID: turn.id, draftText: draft.text) { progress in
-            try await engine.run(request, progress: progress)
+            try await engine.run(finalRequest, progress: progress)
         }
     }
 
@@ -469,6 +473,13 @@ final class EditorStore {
             case .finished(let index, let detail):
                 turn.steps[index].state = .done
                 turn.steps[index].detail = detail
+            case .understanding(let text):
+                turn.understanding = text
+            case .reasoning(let text):
+                turn.reasoning = text
+            case .retrying(let problem):
+                turn.repairedFrom = problem
+                turn.steps[0].detail = "第一次回答无法使用，已自动让 AI 修正"
             }
         }
     }
