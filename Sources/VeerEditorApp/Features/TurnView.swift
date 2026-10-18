@@ -199,7 +199,8 @@ struct ProposalView: View {
             Text(summary).fixedSize(horizontal: false, vertical: true)
             VStack(spacing: Spacing.sm) {
                 ForEach(proposal.items) { item in
-                    ChangeRow(item: item, accepted: proposal.accepted.contains(item.id), editable: editable) { accepted in
+                    ChangeRow(item: item, accepted: proposal.accepted.contains(item.id), editable: editable,
+                              edit: item.kind == .group && editable ? { store.editingGroup = GroupEditTarget(turnID: turn.id, itemID: item.id) } : nil) { accepted in
                         store.setAccepted(accepted, item: item.id, turnID: turn.id)
                     }
                     .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
@@ -274,6 +275,7 @@ struct ChangeRow: View {
     let item: ChangeItem
     let accepted: Bool
     let editable: Bool
+    var edit: (() -> Void)?
     let toggle: (Bool) -> Void
 
     var body: some View {
@@ -295,6 +297,10 @@ struct ChangeRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if let edit {
+                Button(action: edit) { Label("编辑", systemImage: "slider.horizontal.3") }
+                    .buttonStyle(.borderless).font(.callout).help("修改名称、类型和成员")
+            }
             Toggle("接受", isOn: Binding(get: { accepted }, set: { toggle($0) }))
                 .toggleStyle(.switch).labelsHidden().controlSize(.small).tint(.veerAccent)
                 .disabled(!editable)

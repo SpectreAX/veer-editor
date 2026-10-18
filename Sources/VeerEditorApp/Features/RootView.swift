@@ -18,6 +18,7 @@ struct RootView: View {
         .sheet(isPresented: $store.showingImport, onDismiss: { store.cancelImport() }) { ImportSheet() }
         .sheet(isPresented: $store.showingRuleSetSheet) { AddRuleSetSheet() }
         .sheet(isPresented: $store.showingOverview) { SessionOverviewSheet() }
+        .sheet(item: $store.editingGroup) { GroupEditorSheet(target: $0) }
         .sheet(isPresented: $store.showingExportSheet) { ExportSheet() }
         .sheet(item: Binding(get: { store.payloadTurn }, set: { _ in store.payloadTurnID = nil })) { turn in
             PayloadSheet(turn: turn)

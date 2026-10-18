@@ -22,6 +22,12 @@ enum DiffScope: String, CaseIterable, Identifiable {
     var title: String { self == .turn ? "本轮" : "相对原始配置" }
 }
 
+struct GroupEditTarget: Identifiable, Equatable {
+    let turnID: UUID
+    let itemID: Int
+    var id: String { "\(turnID)-\(itemID)" }
+}
+
 struct Toast: Equatable, Identifiable {
     let id = UUID()
     let message: String
@@ -71,6 +77,11 @@ final class EditorStore {
     @ObservationIgnored private var regionCache: (id: UUID, draft: String, overrides: [String: Region], value: [String: Region])?
     @ObservationIgnored private var addedCache: (original: String, draft: String, value: Set<String>)?
     @ObservationIgnored private var diffCache: [(old: String, new: String, lines: [DiffLine])] = []
+    @ObservationIgnored private var structureCache: (old: String, new: String, diff: ConfigDiff)?
+    /// Changes tab: visual cards (default) or the YAML line diff.
+    var changesVisual = true
+    /// The new group being edited from a review card.
+    var editingGroup: GroupEditTarget?
     @ObservationIgnored private let saveQueue = DispatchQueue(label: "veer.session-save", qos: .utility)
     @ObservationIgnored private var saveWork: [UUID: DispatchWorkItem] = [:]
     @ObservationIgnored private var toastWork: DispatchWorkItem?
@@ -117,6 +128,14 @@ final class EditorStore {
         documentCache.insert((text, parsed), at: 0)
         if documentCache.count > 8 { documentCache.removeLast() }
         return parsed
+    }
+
+    /// Structural diff (groups, rules, rule sets) for the visual change view.
+    func structure(_ old: String, _ new: String) -> ConfigDiff {
+        if let cache = structureCache, cache.old == old, cache.new == new { return cache.diff }
+        let diff = ConfigDiff.compute(old: old, new: new)
+        structureCache = (old, new, diff)
+        return diff
     }
 
     /// Line diff, cached for the last few text pairs (the inspector re-renders often).
@@ -508,24 +527,46 @@ final class EditorStore {
     private func invalidatePending(in session: inout Session) {}
 
     func setAccepted(_ accepted: Bool, item: Int, turnID: UUID) {
-        guard let session = current, let draft,
-              let turn = session.turns.first(where: { $0.id == turnID }), var proposal = turn.proposal, proposal.status == .pending else { return }
+        guard let turn = current?.turns.first(where: { $0.id == turnID }), var proposal = turn.proposal, proposal.status == .pending else { return }
         if accepted { proposal.accepted.insert(item) } else { proposal.accepted.remove(item) }
-        let accepted = proposal.accepted
-        mutateTurn(sessionID: session.id, turnID: turnID) { $0.proposal?.accepted = accepted }
-        let engine = engine, plan = proposal.plan, items = proposal.items, sessionID = session.id, regions = regions
+        rebuild(turnID: turnID, plan: proposal.plan, accepted: proposal.accepted)
+    }
+
+    /// Replaces a pending new group's name, type and members (chosen in the editor), then rebuilds
+    /// and re-validates the candidate. Existing groups are still never modified.
+    func editNewGroup(_ target: GroupEditTarget, name: String, type: String, members: [String]) {
+        guard let draft, let turn = current?.turns.first(where: { $0.id == target.turnID }), let proposal = turn.proposal,
+              proposal.status == .pending, target.itemID < proposal.plan.operations.count,
+              case .group(let old) = proposal.plan.operations[target.itemID] else { return }
+        let ids = members.compactMap { name in draft.target(named: name)?.id }
+        var plan = proposal.plan
+        plan.operations[target.itemID] = .group(EditPlan.NewGroup(id: old.id, name: name.trimmingCharacters(in: .whitespaces), type: type, regions: [], members: ids))
+        rebuild(turnID: target.turnID, plan: plan, accepted: proposal.accepted)
+    }
+
+    /// Applies `plan` with `accepted` to the turn's base draft in the background; writing waits.
+    private func rebuild(turnID: UUID, plan: EditPlan, accepted: Set<Int>) {
+        guard let session = current, let draft, let turn = session.turns.first(where: { $0.id == turnID }), let proposal = turn.proposal else { return }
+        mutateTurn(sessionID: session.id, turnID: turnID) { turn in
+            turn.proposal?.accepted = accepted
+            turn.proposal?.plan = plan
+        }
+        let engine = engine, items = proposal.items, sessionID = session.id, regions = regions
+        let isLatest: @Sendable (Turn) -> Bool = { $0.proposal?.accepted == accepted && $0.proposal?.plan == plan }
         revalidating.insert(turnID)
         Task { [weak self] in
-            defer { if self?.current?.turns.first(where: { $0.id == turnID })?.proposal?.accepted == accepted { self?.revalidating.remove(turnID) } }
+            defer { if let turn = self?.current?.turns.first(where: { $0.id == turnID }), isLatest(turn) { self?.revalidating.remove(turnID) } }
             do {
                 let result = try await engine.reapply(plan: plan, accepted: accepted, draft: draft, regions: regions, previous: items)
                 self?.mutateTurn(sessionID: sessionID, turnID: turnID) { turn in
-                    guard turn.proposal?.accepted == accepted else { return }
+                    guard isLatest(turn) else { return }
                     turn.proposal?.candidate = result.candidate
+                    turn.proposal?.items = result.items
                     turn.proposal?.validation = result.validation
                 }
             } catch {
                 self?.mutateTurn(sessionID: sessionID, turnID: turnID) { turn in
+                    guard isLatest(turn) else { return }
                     turn.proposal?.validation = ValidationResult(status: .failed, message: self?.message(for: error) ?? "")
                 }
             }

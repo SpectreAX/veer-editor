@@ -38,15 +38,34 @@ struct ChangesTab: View {
     var body: some View {
         @Bindable var store = store
         VStack(alignment: .leading, spacing: 0) {
-            Picker("范围", selection: $store.diffScope) {
-                ForEach(DiffScope.allCases) { Text($0.title).tag($0) }
+            HStack(spacing: Spacing.sm) {
+                Picker("范围", selection: $store.diffScope) {
+                    ForEach(DiffScope.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                Spacer(minLength: 0)
+                Picker("显示方式", selection: $store.changesVisual) {
+                    Image(systemName: "square.grid.2x2").tag(true).help("可视化")
+                    Image(systemName: "chevron.left.forwardslash.chevron.right").tag(false).help("源码")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel("显示方式")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.sm)
 
-            if let texts = store.diffTexts {
+            if let texts = store.diffTexts, store.changesVisual {
+                let structure = store.structure(texts.old, texts.new)
+                if structure.isEmpty {
+                    StateView(symbol: "checkmark.circle", title: "没有差异", message: store.diffScope == .original ? "草稿与原始配置一致。" : "这一轮没有改变草稿。")
+                } else {
+                    VisualChangesView(diff: structure, editable: editableGroups)
+                }
+            } else if let texts = store.diffTexts {
                 let lines = store.diff(texts.old, texts.new)
                 let stats = LineDiff.stats(lines)
                 if stats.added + stats.removed == 0 {
@@ -73,6 +92,16 @@ struct ChangesTab: View {
         }
         .onChange(of: store.inspectedTurnID) { expandedFolds = [] }
         .onChange(of: store.diffScope) { expandedFolds = [] }
+    }
+
+    /// New groups in the inspected, still-pending proposal: these can be edited before writing.
+    private var editableGroups: [String: GroupEditTarget] {
+        guard store.diffScope == .turn, let session = store.current,
+              let turn = session.turns.first(where: { $0.id == (store.inspectedTurnID ?? store.latestProposalTurnID) }),
+              let proposal = turn.proposal, proposal.status == .pending, proposal.baseDraft == session.draftText else { return [:] }
+        var result: [String: GroupEditTarget] = [:]
+        for item in proposal.items { if let group = item.group { result[group.name] = GroupEditTarget(turnID: turn.id, itemID: item.id) } }
+        return result
     }
 
     private var caption: String {

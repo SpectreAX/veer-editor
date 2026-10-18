@@ -147,9 +147,7 @@ public struct AnonymizedConfig: Sendable {
     }
 
     /// ProfileAnalysis keeps display labels (URLTest); the model should see Mihomo's names (url-test).
-    static func mihomoType(_ label: String) -> String {
-        ProfileAnalysis.groupTypeLabels.first { $0.value == label }?.key ?? label.lowercased()
-    }
+    static func mihomoType(_ label: String) -> String { ProfileAnalysis.mihomoType(label) }
 
     static func providerBehaviors(_ text: String) -> [String: String] {
         guard let providers = (try? compose(yaml: text))??.mapping?["rule-providers"]?.mapping else { return [:] }

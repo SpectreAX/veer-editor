@@ -183,6 +183,12 @@ enum SnapshotRunner {
         store.send("巴哈姆特走台湾和香港")
         await waitIdle(store)
         await shot("25-new-group")
+        if let turn = store.current?.turns.last, let item = turn.proposal?.items.first(where: { $0.kind == .group }) {
+            store.editingGroup = GroupEditTarget(turnID: turn.id, itemID: item.id)
+            await shot("26-group-editor")
+            store.editingGroup = nil
+            await settle(0.4)
+        }
 
         store.newImport()
         await shot("20-start-with-sessions")

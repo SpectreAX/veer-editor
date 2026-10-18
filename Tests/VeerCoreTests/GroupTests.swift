@@ -49,6 +49,17 @@ struct GroupTests {
         }
     }
 
+    @Test func prefersRegionalGroupsInRequestedOrder() throws {
+        let yaml = GroupFixture.yaml.replacingOccurrences(of: "  - {name: 🍎 Apple, type: select, proxies: [DIRECT, 🚀 Proxy]}",
+            with: "  - {name: 香港自动, type: url-test, url: 'https://www.gstatic.com/generate_204', interval: 300, proxies: [\"🇭🇰 香港 01\"]}\n  - {name: 台湾节点, type: select, proxies: [\"🇹🇼 台北 01\", \"🇹🇼 台北 02\"]}")
+        let doc = try ConfigDocument.parse(yaml)
+        let regions = Session(title: "", source: .pasted, text: yaml).regions(for: doc.targets)
+        let plan = EditPlan(operations: [.group(.init(id: "new-1", name: "巴哈姆特", regions: [.tw, .hk])),
+                                         .ruleSet(.catalog(source: "metacubex-geosite", name: "bahamut"), targetId: "new-1")])
+        let result = try PlanApplier.apply(plan, to: doc, regions: regions)
+        #expect(result.items.first?.group?.members == ["台湾节点", "香港自动"])
+    }
+
     @Test func namesNeverCollideAndNamedExitsCanBeMembers() throws {
         let doc = try ConfigDocument.parse(GroupFixture.yaml.replacingOccurrences(of: "🍎 Apple", with: "巴哈姆特"))
         let regions = GroupFixture.regions(doc)
@@ -114,5 +125,33 @@ struct GroupTests {
         guard case .proposal(_, let items, _, _) = output else { Issue.record("expected proposal"); return }
         #expect(items.map(\.kind) == [.group, .ruleSet])
         #expect(items[1].targetName == "巴哈姆特")
+    }
+}
+
+struct ConfigDiffTests {
+    @Test func describesGroupsRulesAndRuleSets() throws {
+        let doc = try GroupFixture.document()
+        let regions = GroupFixture.regions(doc)
+        guard case .plan(let plan) = try LocalIntentParser.parse("巴哈姆特走台湾和香港", targets: doc.targets, regions: regions) else {
+            Issue.record("expected plan"); return
+        }
+        let candidate = try PlanApplier.apply(plan, to: doc, regions: regions).candidate
+        let diff = ConfigDiff.compute(old: doc.text, new: candidate)
+        #expect(diff.groupsAdded.map(\.name) == ["巴哈姆特"])
+        #expect(diff.groupsAdded.first?.members.map(\.name) == ["🇹🇼 台北 01", "🇹🇼 台北 02", "🇭🇰 香港 01"])
+        #expect(diff.groupsChanged.isEmpty && diff.groupsRemoved.isEmpty)
+        #expect(diff.rules.map(\.kind) == [.added] && diff.rules.first?.position == 1)
+        #expect(diff.rules.first?.type == "RULE-SET" && diff.rules.first?.payload == "bahamut" && diff.rules.first?.target == "巴哈姆特")
+        #expect(diff.providersAdded == ["bahamut"])
+        #expect(diff.after?.proxyTypes["🇭🇰 香港 01"] == "SS")
+        #expect(ConfigDiff.compute(old: doc.text, new: doc.text).isEmpty)
+    }
+
+    @Test func reportsChangedAndRemovedRules() throws {
+        let old = "proxy-groups:\n  - {name: A, type: select, proxies: [DIRECT]}\nrules:\n  - DOMAIN,a.com,DIRECT\n  - MATCH,A\n"
+        let new = "proxy-groups:\n  - {name: A, type: url-test, proxies: [DIRECT, REJECT]}\nrules:\n  - MATCH,A\n"
+        let diff = ConfigDiff.compute(old: old, new: new)
+        #expect(diff.groupsChanged.first?.added == ["REJECT"] && diff.groupsChanged.first?.newType == "URLTest")
+        #expect(diff.rules.map(\.kind) == [.removed] && diff.rules.first?.payload == "a.com")
     }
 }

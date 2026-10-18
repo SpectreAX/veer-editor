@@ -28,6 +28,16 @@ struct RealValidatorTests {
         #expect(check.status == .passed, "\(check.message) \(check.detail ?? "")")
     }
 
+    @Test func editedUrlTestGroupsPassMihomo() async throws {
+        let doc = try GroupFixture.document()
+        let plan = EditPlan(operations: [.group(.init(id: "new-1", name: "巴哈", type: "url-test", members: [doc.target(named: "🇭🇰 香港 01")!.id])),
+                                         .route(matchType: "DOMAIN-SUFFIX", match: "gamer.com.tw", targetId: "new-1")])
+        let candidate = try PlanApplier.apply(plan, to: doc).candidate
+        #expect(candidate.contains("type: url-test\n    url: https://www.gstatic.com/generate_204\n    interval: 300\n"))
+        let check = await MihomoValidator().validate(candidate)
+        #expect(check.status == .passed, "\(check.message) \(check.detail ?? "")")
+    }
+
     /// Configs generated from share links must pass Mihomo's own parser.
     @Test func generatedConfigsPassMihomo() async throws {
         let validator = MihomoValidator()

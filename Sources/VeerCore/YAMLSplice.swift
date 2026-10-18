@@ -173,11 +173,17 @@ enum YAMLSplice {
     /// Renders new groups as block sequence items (via the YAML serializer), indented to `indent`.
     static func renderGroups(_ groups: [(name: String, type: String, members: [String])], indent: String) throws -> [String] {
         let items: [Node] = groups.map { group in
-            .mapping(.init([
+            var pairs: [(Node, Node)] = [
                 (Node(stringLiteral: "name"), .scalar(.init(group.name, Tag(.str), .any))),
                 (Node(stringLiteral: "type"), .scalar(.init(group.type, Tag(.str), .any))),
-                (Node(stringLiteral: "proxies"), .sequence(.init(group.members.map { .scalar(.init($0, Tag(.str), .any)) }, Tag(.seq), .block))),
-            ], Tag(.map), .block))
+            ]
+            if group.type == "url-test" || group.type == "fallback" {
+                // Explicit health check rather than relying on kernel defaults.
+                pairs.append((Node(stringLiteral: "url"), .scalar(.init("https://www.gstatic.com/generate_204", Tag(.str), .any))))
+                pairs.append((Node(stringLiteral: "interval"), .scalar(.init("300", Tag(.int), .plain))))
+            }
+            pairs.append((Node(stringLiteral: "proxies"), .sequence(.init(group.members.map { .scalar(.init($0, Tag(.str), .any)) }, Tag(.seq), .block))))
+            return .mapping(.init(pairs, Tag(.map), .block))
         }
         let yaml = ConfigImporter.readableUnicode(try Yams.serialize(node: .sequence(.init(items, Tag(.seq), .block)), indent: 2, width: -1, allowUnicode: true))
         return yaml.split(separator: "\n", omittingEmptySubsequences: true).map { indent + $0 }

@@ -71,10 +71,13 @@ public enum PlanApplier {
                 if !members.contains(target.name) { members.append(target.name) }
             }
             if !spec.regions.isEmpty {
-                let wanted = Set(spec.regions)
-                var regional = base.targets.filter { $0.kind == .node && wanted.contains(region(of: $0.name)) }.map(\.name)
-                // Provider-only configs have no static nodes; use the regional groups instead.
-                if regional.isEmpty { regional = base.targets.filter { $0.kind == .group && wanted.contains(region(of: $0.name)) }.map(\.name) }
+                // Prefer the config's own regional groups (台湾自动, 香港节点 …), in the order of the
+                // requested regions; fall back to individual nodes when there are none.
+                func inRegions(_ kind: Target.Kind) -> [String] {
+                    spec.regions.flatMap { wanted in base.targets.filter { $0.kind == kind && region(of: $0.name) == wanted }.map(\.name) }
+                }
+                var regional = inRegions(.group)
+                if regional.isEmpty { regional = inRegions(.node) }
                 guard !regional.isEmpty else {
                     throw EditorError("当前配置里没有标记为\(spec.regions.map(\.displayName).joined(separator: "、"))的节点或策略组，无法新建“\(spec.name)”。可以在检查器的“出口”里更正地区。")
                 }

@@ -233,6 +233,35 @@ struct StoreTests {
         #expect(store.showingRuleSetSheet)
     }
 
+    @Test func newGroupsCanBeEditedBeforeWriting() async throws {
+        let store = makeStore()
+        let yaml = """
+        proxies:
+          - {name: "🇹🇼 台北 01", type: ss, server: tw1.invalid, port: 443, cipher: aes-128-gcm, password: p}
+          - {name: "🇭🇰 香港 01", type: ss, server: hk1.invalid, port: 443, cipher: aes-128-gcm, password: p}
+        proxy-groups:
+          - {name: 🚀 Proxy, type: select, proxies: ["🇹🇼 台北 01", "🇭🇰 香港 01"]}
+        rules:
+          - MATCH,🚀 Proxy
+        """
+        store.importText(yaml, title: "twhk.yaml")
+        store.confirmExits()
+        store.send("巴哈姆特走台湾和香港")
+        await waitIdle(store)
+        let turn = try #require(store.current?.turns.last)
+        let item = try #require(turn.proposal?.items.first { $0.kind == .group })
+        store.editNewGroup(GroupEditTarget(turnID: turn.id, itemID: item.id), name: "巴哈", type: "url-test", members: ["🇭🇰 香港 01", "DIRECT"])
+        #expect(!store.canWrite(store.current!.turns.last!))
+        await waitIdle(store)
+        let edited = try #require(store.current?.turns.last?.proposal)
+        #expect(edited.items.first?.group?.name == "巴哈" && edited.items.first?.group?.members == ["🇭🇰 香港 01", "DIRECT"])
+        #expect(edited.items.last?.targetName == "巴哈")
+        store.write()
+        let group = try #require(ProfileAnalysis.analyze(store.current!.draftText)?.groups.last)
+        #expect(group.name == "巴哈" && group.type == "URLTest" && group.members.map(\.name) == ["🇭🇰 香港 01", "DIRECT"])
+        #expect(store.draft?.rules.first == "RULE-SET,bahamut,巴哈")
+    }
+
     @Test func commandsRouteToTheInspector() {
         let store = makeStore()
         store.send("/test www.example.com")

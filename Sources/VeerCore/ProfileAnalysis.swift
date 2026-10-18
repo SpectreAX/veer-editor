@@ -59,8 +59,15 @@ public struct ProfileAnalysis: Sendable, Equatable {
     /// Document order.
     public let groups: [Group]
     public let flows: [Flow]
+    /// Node name → display protocol (SS, VLESS…), for member tiles.
+    public let proxyTypes: [String: String]
 
     public var isEmpty: Bool { proxyCount == 0 && proxyProviderCount == 0 && groupCount == 0 && ruleCount == 0 }
+
+    /// Display label (URLTest) back to Mihomo's type name (url-test).
+    public static func mihomoType(_ label: String) -> String {
+        groupTypeLabels.first { $0.value == label }?.key ?? label.lowercased()
+    }
 
     static let protocolLabels = ["ss": "SS", "shadowsocks": "SS", "ssr": "SSR", "vmess": "VMess", "vless": "VLESS", "trojan": "Trojan",
                                  "anytls": "AnyTLS", "hysteria": "Hysteria", "hysteria2": "Hysteria2", "tuic": "TUIC", "wireguard": "WireGuard",
@@ -119,7 +126,9 @@ public struct ProfileAnalysis: Sendable, Equatable {
             builtInProxies: proxies.count,
             providers: providers,
             groups: groups,
-            flows: flows
+            flows: flows,
+            proxyTypes: Dictionary(proxies.compactMap { proxy in proxy["name"]?.string.map { ($0, label(proxy["type"]?.string, in: protocolLabels, uppercaseFallback: true)) } },
+                                   uniquingKeysWith: { a, _ in a })
         )
     }
 
