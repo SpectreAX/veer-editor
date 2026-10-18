@@ -53,6 +53,7 @@ final class EditorStore {
     @ObservationIgnored private var importTask: Task<Void, Never>?
     var showingExportSheet = false
     var showingSettings = false
+    var showingModelPopover = false
     var payloadTurnID: UUID?
     var pendingDeletion: Session?
     var composerText = ""

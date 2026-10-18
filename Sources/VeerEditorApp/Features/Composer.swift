@@ -105,49 +105,25 @@ struct ComposerView: View {
 
     private var modeMenu: some View {
         @Bindable var store = store
-        return Menu {
-            Picker("解析方式", selection: $store.useAI) {
-                Text(store.aiConfigured ? "AI · \(store.settings.provider.title)" : "AI（未配置）").tag(true)
-                Text("本地解析").tag(false)
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Picker("模型 · \(store.settings.provider.title)", selection: Binding(get: { store.settings.model }, set: { model in
-                store.settings.select(model: model)
-                store.useAI = true
-            })) {
-                ForEach(composerModels, id: \.self) { Text($0).tag($0) }
-            }
-            .pickerStyle(.inline)
-            .disabled(!store.aiConfigured)
-            let style = store.settings.thinkingStyle
-            if style.adjustable {
-                Divider()
-                Picker("深度思考", selection: Binding(get: { store.settings.effectiveLevel }, set: { store.settings.thinkingLevel = $0 })) {
-                    ForEach(style.levels) { Text(style.title(of: $0)).tag($0) }
-                }
-                .pickerStyle(.inline)
-                .disabled(!store.aiConfigured)
-            }
-            Divider()
-            Button("AI 设置…") { openSettings() }
-        } label: {
+        return Button { store.showingModelPopover.toggle() } label: {
             Label(store.effectiveUseAI ? "AI · \(store.settings.modelLabel)" : (store.useAI ? "本地解析 · 配置 AI" : "本地解析"),
                   systemImage: store.effectiveUseAI ? (store.settings.thinks ? "brain" : "sparkles") : "text.magnifyingglass")
                 .font(.callout)
                 .padding(.horizontal, Spacing.sm + Spacing.xxs)
                 .padding(.vertical, Spacing.xs)
                 .background(Color.primary.opacity(0.06), in: Capsule())
+                .contentShape(Capsule())
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
         .fixedSize()
-        .help("选择解析方式与模型")
-    }
-
-    /// Suggested models plus the fetched list when it is short enough for a menu.
-    private var composerModels: [String] {
-        store.settings.models(includingFetched: store.settings.fetchedModels.count <= 16)
+        .help("选择解析方式、模型与思考强度")
+        .popover(isPresented: $store.showingModelPopover, arrowEdge: .top) {
+            ModelPopover {
+                store.showingModelPopover = false
+                openSettings()
+            }
+            .environment(store)
+        }
     }
 
     private func pick(_ item: CompletionItem) {

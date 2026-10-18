@@ -93,7 +93,9 @@ struct AISettingsPane: View {
                         Button("移除") { store.forgetKey(); testState = .idle }
                     }
                 } else {
-                    SecureField("粘贴 \(store.settings.provider.title) 的 API Key", text: $key)
+                    SecureField("API Key", text: $key, prompt: Text(""))
+                        .labelsHidden()
+                        .accessibilityLabel("\(store.settings.provider.title) 的 API Key")
                     Toggle("记住 API Key", isOn: $remember)
                         .help("保存在本机的应用支持目录，只有你的用户账户可以读取")
                     HStack {
@@ -151,18 +153,17 @@ struct AISettingsPane: View {
     }
 }
 
-/// Thinking strength for the selected model: a picker when it can change, otherwise a note.
+/// Thinking strength for the selected model: a slider when it can change, otherwise a note.
 struct ThinkingLevelControl: View {
     @Binding var settings: AISettings
 
     var body: some View {
         let style = settings.thinkingStyle
-        if style.adjustable {
-            Picker("深度思考", selection: Binding(get: { settings.effectiveLevel }, set: { settings.thinkingLevel = $0 })) {
-                ForEach(style.levels) { Text(style.title(of: $0)).tag($0) }
-            }
-        } else {
-            LabeledContent("深度思考") {
+        LabeledContent("深度思考") {
+            if style.adjustable {
+                ThinkingSlider(style: style, level: Binding(get: { settings.effectiveLevel }, set: { settings.thinkingLevel = $0 }))
+                    .frame(width: 240)
+            } else {
                 Text(style == .intrinsic ? "始终开启（推理模型）" : "此模型不支持").foregroundStyle(.secondary)
             }
         }

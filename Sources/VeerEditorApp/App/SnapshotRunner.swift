@@ -218,6 +218,13 @@ enum SnapshotRunner {
         store.sessionKey = "sk-snapshot"
         store.useAI = true
         await shot("28-model-choice")
+        store.showingModelPopover = true
+        await settle(1.0)
+        if let popover = NSApp.windows.first(where: { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }) {
+            capture(popover, to: directory.appendingPathComponent("28-model-popover-\(suffix).png"))
+        }
+        store.showingModelPopover = false
+        await settle(0.4)
         // The Settings scene cannot be opened from here; host the same view in a window of its own.
         let settings = NSWindow(contentViewController: NSHostingController(rootView: SettingsView().environment(store).tint(.veerAccent)))
         settings.title = "AI"
