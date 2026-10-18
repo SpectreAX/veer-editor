@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import VeerCore
 
+func regionsOfSample() -> [String: Region] {
+    let doc = try! ConfigDocument.parse(SampleConfig.text)
+    return Session(title: "", source: .sample, text: SampleConfig.text).regions(for: doc.targets)
+}
+
 struct SystemPromptTests {
     func context() throws -> (ConfigDocument, AnonymousContext) {
         let doc = try ConfigDocument.parse(SampleConfig.text)
@@ -11,12 +16,12 @@ struct SystemPromptTests {
 
     @Test func describesVeerNotOpenClashAndOnlyAnonymousExits() throws {
         let (_, context) = try context()
-        let prompt = SystemPrompt.build(exits: context.exits)
+        let prompt = SystemPrompt.build(config: AnonymizedConfig.make(document: try ConfigDocument.parse(SampleConfig.text), regions: regionsOfSample()).yaml)
         #expect(prompt.contains("Veer 不是 OpenClash"))
         #expect(prompt.contains(#"{"schemaVersion":1,"operations":[…]}"#))
         #expect(prompt.contains(SystemPrompt.askForExit))
         #expect(prompt.contains("Ruleset/ 前缀"))
-        #expect(prompt.contains(#""label":"出口1（日本）""#))
+        #expect(prompt.contains("{id: target-0, name: 策略组1（日本）}") || prompt.contains("name: 策略组1（日本）"))
         for leaked in ["日本出口", "东京", "example.invalid", "placeholder-password", "DOMAIN-SUFFIX,openai.com"] {
             #expect(!prompt.contains(leaked))
         }
@@ -28,8 +33,8 @@ struct SystemPromptTests {
 
     /// Every JSON example in the prompt must be a reply Veer accepts.
     @Test func examplesDecodeAndApply() throws {
-        let (doc, context) = try context()
-        let prompt = SystemPrompt.build(exits: context.exits)
+        let (doc, _) = try context()
+        let prompt = SystemPrompt.build(config: AnonymizedConfig.make(document: doc, regions: regionsOfSample()).yaml)
         let direct = doc.target(named: "DIRECT")!.id, reject = doc.target(named: "REJECT")!.id
         let section = prompt.components(separatedBy: "# 示例")[1].components(separatedBy: "# Targets")[0]
         let examples = section.components(separatedBy: "\n").filter { $0.hasPrefix("{\"") }
@@ -92,7 +97,7 @@ struct SystemPromptTests {
         }
         #expect(question == SystemPrompt.askForExit && options.map(\.label).contains("美国出口") && options.allSatisfy { $0.prompt == nil })
         let plan = #"{"schemaVersion":1,"operations":[{"kind":"rule_set","source":"metacubex-geosite","name":"youtube","targetId":"target-1"}]}"#
-        guard case .proposal(_, let items, let candidate, _) = try await run("YouTube 走出口2（美国）", reply: plan) else { Issue.record("expected proposal"); return }
+        guard case .proposal(_, let items, let candidate, _) = try await run("YouTube 走策略组2（美国）", reply: plan) else { Issue.record("expected proposal"); return }
         #expect(items.first?.subject == "YouTube" && items.first?.targetName == "美国出口")
         let after = try ConfigDocument.parse(candidate)
         #expect(after.rules.first == "RULE-SET,youtube,美国出口")

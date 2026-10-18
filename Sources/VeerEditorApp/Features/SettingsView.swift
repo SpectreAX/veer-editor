@@ -95,14 +95,20 @@ struct PrivacySettingsPane: View {
     var body: some View {
         Form {
             Section("发送给 AI 的内容") {
-                Label("出口的匿名标签，例如“出口1（日本）”", systemImage: "checkmark")
+                Label("匿名化的配置 YAML：策略组与节点改为“策略组N”“节点N”，只保留结构、策略组类型和声明的地区", systemImage: "checkmark")
+                Label("现有规则的类型与匿名出口；具体域名和 IP 默认替换为占位符", systemImage: "checkmark")
                 Label("你的指令，其中的出口名称会替换成匿名标签", systemImage: "checkmark")
                 Label("本会话最近几轮的匿名摘要，用于理解追问", systemImage: "checkmark")
             }
             Section("从不发送") {
-                Label("节点地址、端口、密码、UUID 等节点字段", systemImage: "xmark")
-                Label("订阅链接与 Provider 地址", systemImage: "xmark")
-                Label("现有规则与完整配置", systemImage: "xmark")
+                Label("真实的节点、策略组和代理集名称", systemImage: "xmark")
+                Label("节点地址、端口、密码、UUID、协议与传输参数", systemImage: "xmark")
+                Label("订阅链接、规则集与 Provider 地址", systemImage: "xmark")
+                Label("DNS、TUN、端口、控制器等其他配置", systemImage: "xmark")
+            }
+            Section {
+                Toggle("发送现有规则中的具体域名和 IP", isOn: Binding(get: { store.shareRuleLiterals }, set: { store.shareRuleLiterals = $0 }))
+                Text("关闭时这些值显示为 <域名N>、<IPN>。打开后 AI 能看到你现有的分流目标，可能包含内网或个人常用域名。").font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Text("每一轮 AI 对话下方都有“查看发送给 AI 的内容”，可以核对实际发送的文字。你在指令里亲自输入的秘密无法被自动识别，请勿粘贴密钥或订阅链接。")

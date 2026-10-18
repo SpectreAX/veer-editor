@@ -87,19 +87,27 @@ public struct AIRequestPayload: Sendable, Codable, Hashable {
     public let exits: [String]
     public let history: [String]
     public let instruction: String
-    /// The full system instructions sent with the request (anonymous exits only).
+    /// The full system instructions sent with the request.
     public var system: String?
+    /// The anonymized configuration YAML included with the request.
+    public var config: String?
 
-    public init(model: String, exits: [String], history: [String], instruction: String, system: String? = nil) {
+    public init(model: String, exits: [String], history: [String], instruction: String, system: String? = nil, config: String? = nil) {
         self.model = model
         self.exits = exits
         self.history = history
         self.instruction = instruction
         self.system = system
+        self.config = config
     }
 
     public var readable: String {
-        var text = "模型：\(model)\n\n出口表：\n" + exits.map { "· \($0)" }.joined(separator: "\n")
+        var text = "模型：\(model)\n\n"
+        if let config {
+            text += "匿名配置（YAML）：\n" + config
+        } else {
+            text += "出口表：\n" + exits.map { "· \($0)" }.joined(separator: "\n")
+        }
         if !history.isEmpty { text += "\n\n此前对话（已匿名）：\n" + history.map { "· \($0)" }.joined(separator: "\n") }
         text += "\n\n指令：\n\(instruction)"
         return text
@@ -215,7 +223,7 @@ public struct AIClient: Sendable {
     }
 
     /// Instructions for every Veer client; see `SystemPrompt`.
-    public static func systemPrompt(exits: [AnonymousContext.Exit]) -> String {
-        SystemPrompt.build(exits: exits)
+    public static func systemPrompt(config: String) -> String {
+        SystemPrompt.build(config: config)
     }
 }

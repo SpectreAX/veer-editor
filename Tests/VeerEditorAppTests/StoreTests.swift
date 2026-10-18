@@ -107,7 +107,7 @@ struct StoreTests {
         #expect(message.contains("HTTPS"))
         #expect(opensSettings && canUseLocal)
         let payload = try #require(turn.sentPayload).readable
-        #expect(payload.contains("出口1（日本）"))
+        #expect(payload.contains("策略组1（日本）"))
         #expect(!payload.contains("日本出口") && !payload.contains("sk-test") && !payload.contains("password"))
     }
 

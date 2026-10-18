@@ -394,7 +394,8 @@ struct PayloadSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
             Text("发送给 AI 的内容").font(.headline)
-            Text("这是本轮请求中除系统说明外的全部内容。出口名称已替换为匿名标签。")
+            Text(turn.sentPayload?.config == nil ? "这是本轮请求中除系统说明外的全部内容。出口名称已替换为匿名标签。"
+                 : "这是本轮发送的匿名配置、对话与指令。配置已去除真实名称、节点参数和各类地址；系统说明见下方。")
                 .font(.callout).foregroundStyle(.secondary)
             ScrollView {
                 Text(turn.sentPayload?.readable ?? "本轮没有发送 AI 请求。")
@@ -407,7 +408,7 @@ struct PayloadSheet: View {
             .overlay(RoundedRectangle(cornerRadius: Radius.medium).strokeBorder(Color.separatorLine))
             .frame(minHeight: 220)
             if let system = turn.sentPayload?.system {
-                DisclosureGroup("系统说明（每轮相同，只含匿名出口）") {
+                DisclosureGroup("系统说明（规则与上面的匿名配置）") {
                     ScrollView {
                         Text(system).font(Typography.codeSmall).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(Spacing.sm)
@@ -418,13 +419,13 @@ struct PayloadSheet: View {
                 .font(.callout)
             }
             VStack(alignment: .leading, spacing: Spacing.xs) {
-                Label("未发送：节点地址、密码、订阅链接、现有规则、真实出口名称", systemImage: "lock.shield")
+                Label("未发送：真实名称、节点地址/端口/密码/协议参数、订阅与规则集地址、DNS/TUN 等配置", systemImage: "lock.shield")
                 Label("你在指令里亲自输入的内容会原样发送（出口名除外），请勿填写密钥", systemImage: "exclamationmark.triangle")
             }
             .font(.caption).foregroundStyle(.secondary)
             HStack { Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.defaultAction) }
         }
         .padding(Spacing.xl)
-        .frame(width: 560, height: 560)
+        .frame(width: 640, height: 640)
     }
 }

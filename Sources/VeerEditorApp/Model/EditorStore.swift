@@ -55,6 +55,8 @@ final class EditorStore {
     var settings: AISettings { didSet { saveSettings() } }
     var useAI: Bool { didSet { UserDefaults.standard.set(useAI, forKey: "useAI") } }
     var validateBeforeExport: Bool { didSet { UserDefaults.standard.set(validateBeforeExport, forKey: "validateBeforeExport") } }
+    /// Send literal domains/IPs from existing rules to the AI instead of placeholders. Off by default.
+    var shareRuleLiterals: Bool { didSet { UserDefaults.standard.set(shareRuleLiterals, forKey: "shareRuleLiterals") } }
     /// Key used only for this app run when the user chose not to save it.
     var sessionKey: String?
     var keySaved: Bool
@@ -85,6 +87,7 @@ final class EditorStore {
         }
         useAI = defaults.object(forKey: "useAI") as? Bool ?? false
         validateBeforeExport = defaults.object(forKey: "validateBeforeExport") as? Bool ?? true
+        shareRuleLiterals = defaults.object(forKey: "shareRuleLiterals") as? Bool ?? false
         keySaved = keyStore.read() != nil
         if persist {
             sessions = store.loadAll()
@@ -343,7 +346,8 @@ final class EditorStore {
         let steps = EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: .waiting) }
         var turn = Turn(prompt: prompt, mode: mode, steps: steps)
         let request = EditorEngine.Request(prompt: prompt, draft: draft, regions: session.regions(for: draft.targets), useAI: useAI,
-                                           settings: settings, apiKey: apiKey, history: history(for: session, context: draft))
+                                           settings: settings, apiKey: apiKey, history: history(for: session, context: draft),
+                                           shareRuleLiterals: shareRuleLiterals)
         if useAI { turn.sentPayload = EditorEngine.payload(for: request) }
         invalidatePending(in: &session)
         session.turns.append(turn)

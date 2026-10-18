@@ -13,19 +13,26 @@ public struct AnonymousContext: Sendable {
     let labels: [(name: String, label: String)]
 
     public init(targets: [Target], regions: [String: Region]) {
-        var number = 0
+        var groups = 0, nodes = 0
         var exits: [Exit] = []
         var labels: [(String, String)] = []
         for target in targets {
             if target.kind == .builtin {
                 exits.append(Exit(id: target.id, label: target.name, kind: .builtin))
-            } else {
-                number += 1
-                let region = regions[target.name] ?? .unknown
-                let label = "出口\(number)（\(region == .unknown ? "未指定地区" : region.displayName)）"
-                exits.append(Exit(id: target.id, label: label, kind: target.kind))
-                labels.append((target.name, label))
+                continue
             }
+            let region = regions[target.name] ?? .unknown
+            let suffix = region == .unknown ? "" : "（\(region.displayName)）"
+            let label: String
+            if target.kind == .group {
+                groups += 1
+                label = "策略组\(groups)\(suffix)"
+            } else {
+                nodes += 1
+                label = "节点\(nodes)\(suffix)"
+            }
+            exits.append(Exit(id: target.id, label: label, kind: target.kind))
+            labels.append((target.name, label))
         }
         self.exits = exits
         self.labels = labels.sorted { $0.0.count > $1.0.count }
@@ -56,4 +63,10 @@ public struct AnonymousContext: Sendable {
     }
 
     public func label(forTargetID id: String) -> String? { exits.first { $0.id == id }?.label }
+
+    /// Label for a real exit name; built-ins keep their name.
+    public func label(forName name: String) -> String? {
+        if ConfigDocument.builtinPolicies.contains(name) { return name }
+        return labels.first { $0.name == name }?.label
+    }
 }

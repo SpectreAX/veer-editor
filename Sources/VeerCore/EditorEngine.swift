@@ -26,8 +26,12 @@ public struct EditorEngine: Sendable {
         public var apiKey: String?
         /// Anonymized earlier exchanges, oldest first.
         public var history: [(role: String, content: String)]
+        /// Send literal domains/IPs from existing rules instead of placeholders (off by default).
+        public var shareRuleLiterals: Bool
 
-        public init(prompt: String, draft: ConfigDocument, regions: [String: Region], useAI: Bool, settings: AISettings, apiKey: String?, history: [(role: String, content: String)] = []) {
+        public init(prompt: String, draft: ConfigDocument, regions: [String: Region], useAI: Bool, settings: AISettings, apiKey: String?,
+                    history: [(role: String, content: String)] = [], shareRuleLiterals: Bool = false) {
+            self.shareRuleLiterals = shareRuleLiterals
             self.prompt = prompt
             self.draft = draft
             self.regions = regions
@@ -50,11 +54,11 @@ public struct EditorEngine: Sendable {
 
     /// The anonymized payload a request would send; shown to the user per turn.
     public static func payload(for request: Request) -> AIRequestPayload {
-        let context = AnonymousContext(targets: request.draft.targets, regions: request.regions)
-        return AIRequestPayload(model: request.settings.model, exits: context.exits.map(\.label),
+        let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
+        return AIRequestPayload(model: request.settings.model, exits: anonymized.context.exits.map(\.label),
                                 history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
-                                instruction: context.anonymize(request.prompt),
-                                system: AIClient.systemPrompt(exits: context.exits))
+                                instruction: anonymized.context.anonymize(request.prompt),
+                                system: AIClient.systemPrompt(config: anonymized.yaml), config: anonymized.yaml)
     }
 
     public func run(_ request: Request, progress: @Sendable (Progress) async -> Void) async throws -> Output {
@@ -63,11 +67,12 @@ public struct EditorEngine: Sendable {
             await progress(.finished(0, detail: "超出编辑范围"))
             return .outOfScope(LocalIntentParser.outOfScopeMessage)
         }
-        let context = AnonymousContext(targets: request.draft.targets, regions: request.regions)
         let reply: AssistantReply
         if request.useAI {
+            let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
+            let context = anonymized.context
             let httpRequest = try ai.makeRequest(settings: request.settings, apiKey: request.apiKey,
-                                                 system: AIClient.systemPrompt(exits: context.exits),
+                                                 system: AIClient.systemPrompt(config: anonymized.yaml),
                                                  history: request.history, prompt: context.anonymize(request.prompt))
             let content = try await ai.complete(httpRequest)
             try Task.checkCancellation()

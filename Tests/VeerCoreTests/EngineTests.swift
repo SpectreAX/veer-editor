@@ -275,10 +275,11 @@ struct PrivacyTests {
         let doc = try sample()
         let regions = Session(title: "", source: .sample, text: SampleConfig.text).regions(for: doc.targets)
         let context = AnonymousContext(targets: doc.targets, regions: regions)
-        #expect(context.exits[0].label == "出口1（日本）")
-        #expect(context.exits[3].label == "出口4（未指定地区）")
-        #expect(context.anonymize("Netflix 走 @日本出口，YouTube 走香港出口") == "Netflix 走 出口1（日本），YouTube 走出口3（香港）")
-        let system = AIClient.systemPrompt(exits: context.exits)
+        #expect(context.exits[0].label == "策略组1（日本）")
+        #expect(context.exits[3].label == "策略组4")
+        #expect(context.exits[4].label == "节点1（日本）")
+        #expect(context.anonymize("Netflix 走 @日本出口，YouTube 走香港出口") == "Netflix 走 策略组1（日本），YouTube 走策略组3（香港）")
+        let system = AIClient.systemPrompt(config: AnonymizedConfig.make(document: doc, regions: regions).yaml)
         for secret in ["placeholder-password", "example.invalid", "日本出口", "东京", "DOMAIN-SUFFIX,openai.com"] {
             #expect(!system.contains(secret))
         }
@@ -288,7 +289,8 @@ struct PrivacyTests {
         let doc = try sample()
         let request = EditorEngine.Request(prompt: "Netflix 走日本出口", draft: doc, regions: [:], useAI: true, settings: AISettings(), apiKey: "sk-test")
         let payload = EditorEngine.payload(for: request)
-        #expect(payload.instruction == "Netflix 走出口1（未指定地区）")
+        #expect(payload.instruction == "Netflix 走策略组1")
+        #expect(payload.config?.contains("name: 策略组1") == true)
         #expect(!payload.readable.contains("sk-test"))
         #expect(!payload.readable.contains("password"))
     }
