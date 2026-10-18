@@ -46,14 +46,13 @@ struct AISettingsPane: View {
                 }
             }
             Section {
-                Picker("模型", selection: Binding(get: { store.settings.choice.id }, set: { id in
-                    if let choice = store.settings.choices.first(where: { $0.id == id }) { store.settings.select(choice) }
+                Picker("模型", selection: Binding(get: { store.settings.model }, set: { model in
+                    store.settings.select(model: model)
                     testState = .idle
                 })) {
-                    ForEach(store.settings.choices) { choice in
-                        Label(choice.title, systemImage: choice.thinking ? "brain" : "sparkles").tag(choice.id)
-                    }
+                    ForEach(store.settings.models, id: \.self) { Text($0).tag($0) }
                 }
+                ThinkingLevelControl(settings: $store.settings)
                 LabeledContent("其他模型") {
                     HStack {
                         TextField("其他模型", text: $customModel, prompt: Text("输入模型 ID"))
@@ -70,7 +69,7 @@ struct AISettingsPane: View {
                         status(fetchState, passed: "已获取 \(store.settings.fetchedModels.count) 个模型")
                     }
                 }
-                Text("标有“深度思考”的选项让模型先推理再回答，更擅长理解复杂指令，但更慢、费用更高。DeepSeek Reasoner、o4-mini、R1 等推理模型始终深度思考；Claude、Gemini 2.5 Flash、GPT-5、GLM 可在同一模型的普通与深度思考之间切换。")
+                Text("深度思考让模型先推理再回答，更擅长理解复杂指令；强度越高越慢、费用越高。DeepSeek V4、Claude、Gemini 2.5 Flash、GPT-5 可选强度，GLM 只能开关，o4-mini、R1 等推理模型始终深度思考。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -89,13 +88,14 @@ struct AISettingsPane: View {
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 if store.keySaved || store.sessionKey != nil {
                     HStack {
-                        StatusBadge(kind: .success, text: store.keySaved ? "已保存到钥匙串" : "仅本次运行有效", compact: true)
+                        StatusBadge(kind: .success, text: store.keySaved ? "已保存在本机" : "仅本次运行有效", compact: true)
                         Spacer()
                         Button("移除") { store.forgetKey(); testState = .idle }
                     }
                 } else {
                     SecureField("粘贴 \(store.settings.provider.title) 的 API Key", text: $key)
-                    Toggle("保存到钥匙串", isOn: $remember)
+                    Toggle("记住 API Key", isOn: $remember)
+                        .help("保存在本机的应用支持目录，只有你的用户账户可以读取")
                     HStack {
                         Button("保存") {
                             do { try store.saveKey(key, remember: remember); key = ""; keyError = nil } catch { keyError = store.message(for: error) }
@@ -120,7 +120,7 @@ struct AISettingsPane: View {
     private func useCustomModel() {
         let model = customModel.trimmingCharacters(in: .whitespaces)
         guard !model.isEmpty else { return }
-        store.settings.select(store.settings.provider.choices(for: model)[0])
+        store.settings.select(model: model)
         customModel = ""
         testState = .idle
     }
@@ -146,6 +146,24 @@ struct AISettingsPane: View {
                 fetchState = .passed
             } catch {
                 fetchState = .failed(store.message(for: error))
+            }
+        }
+    }
+}
+
+/// Thinking strength for the selected model: a picker when it can change, otherwise a note.
+struct ThinkingLevelControl: View {
+    @Binding var settings: AISettings
+
+    var body: some View {
+        let style = settings.thinkingStyle
+        if style.adjustable {
+            Picker("深度思考", selection: Binding(get: { settings.effectiveLevel }, set: { settings.thinkingLevel = $0 })) {
+                ForEach(style.levels) { Text(style.title(of: $0)).tag($0) }
+            }
+        } else {
+            LabeledContent("深度思考") {
+                Text(style == .intrinsic ? "始终开启（推理模型）" : "此模型不支持").foregroundStyle(.secondary)
             }
         }
     }

@@ -31,11 +31,37 @@ struct ProviderCatalogTests {
         }
     }
 
-    @Test func thinkingIsAModelChoice() {
-        #expect(AISettings(provider: .deepSeek).choices.map(\.id) == ["deepseek-chat", "deepseek-reasoner#thinking"])
-        let claude = AISettings(provider: .anthropic).choices.map(\.id)
-        #expect(claude.prefix(2) == ["claude-sonnet-5-5", "claude-sonnet-5-5#thinking"])
-        #expect(AIProvider.openAI.choices(for: "gpt-4.1").map(\.thinking) == [false])
+    @Test func thinkingStrengthFollowsTheModel() {
+        var settings = AISettings(provider: .deepSeek)
+        #expect(settings.models == ["deepseek-flash", "deepseek-v4-pro"])
+        #expect(settings.thinkingStyle.levels == [.off, .low, .high, .max] && !settings.thinks)
+        settings.thinkingLevel = .medium
+        #expect(settings.effectiveLevel == .high && settings.modelLabel == "deepseek-flash · 深度思考 · 高")
+        settings.thinkingLevel = .max
+        settings.select(model: "deepseek-v4-pro")
+        #expect(settings.modelLabel == "deepseek-v4-pro · 深度思考 · 最高")
+        // A reasoning model always thinks; going back keeps the user's choice.
+        var openAI = AISettings(provider: .openAI)
+        #expect(openAI.thinkingStyle.levels == [.off] && openAI.modelLabel == "gpt-4.1-mini")
+        openAI.select(model: "o4-mini")
+        #expect(openAI.thinks && !openAI.thinkingStyle.adjustable && openAI.modelLabel == "o4-mini · 深度思考")
+        openAI.select(model: "gpt-5-mini")
+        #expect(!openAI.thinks)
+        var glm = AISettings(provider: .zhipu, thinkingLevel: .low)
+        #expect(glm.effectiveLevel == .high && glm.thinkingStyle.title(of: .high) == "开启")
+        glm.thinkingLevel = .off
+        #expect(!glm.thinks)
+    }
+
+    @Test func retiredDeepSeekModelsAreReplaced() throws {
+        let chat = try JSONDecoder().decode(AISettings.self, from: Data(#"{"preset":"deepSeek","baseURL":"https://api.deepseek.com/v1","model":"deepseek-chat","thinking":false,"fetchedModels":["deepseek-chat","deepseek-reasoner","deepseek-flash"]}"#.utf8))
+        #expect(chat.model == "deepseek-flash" && !chat.thinks && chat.fetchedModels == ["deepseek-flash"])
+        let reasoner = try JSONDecoder().decode(AISettings.self, from: Data(#"{"preset":"deepSeek","baseURL":"https://api.deepseek.com/v1","model":"deepseek-reasoner","thinking":true}"#.utf8))
+        #expect(reasoner.model == "deepseek-flash" && reasoner.effectiveLevel == .high)
+        var typed = AISettings(provider: .deepSeek)
+        typed.select(model: "deepseek-reasoner")
+        #expect(typed.model == "deepseek-flash" && typed.thinks)
+        #expect(AISettings(provider: .deepSeek, model: "deepseek-chat").model == "deepseek-flash")
     }
 
     @Test func infersThinkingForFetchedModels() {
@@ -49,26 +75,27 @@ struct ProviderCatalogTests {
         #expect(AIProvider.anthropic.thinkingStyle(for: "claude-sonnet-4-5") == .anthropic)
         #expect(AIProvider.siliconFlow.thinkingStyle(for: "Qwen/QwQ-32B") == .intrinsic)
         #expect(AIProvider.zhipu.thinkingStyle(for: "glm-4.5") == .zhipu)
-        #expect(AIProvider.deepSeek.thinkingStyle(for: "deepseek-chat-r10") == .none)
+        #expect(AIProvider.deepSeek.thinkingStyle(for: "deepseek-chat-r10") == .deepSeek)
+        #expect(AIProvider.deepSeek.thinkingStyle(for: "deepseek-v4-pro") == .deepSeek)
     }
 
     @Test func currentModelStaysInTheMenu() {
         var settings = AISettings(provider: .openAI)
         settings.fetchedModels = ["gpt-4.1-nano", "gpt-4.1"]
-        settings.select(ModelChoice(model: "ft:gpt-4.1:me", thinking: false))
-        let ids = settings.choices.map(\.id)
+        settings.select(model: "ft:gpt-4.1:me")
+        let ids = settings.models
         #expect(ids.contains("gpt-4.1-nano") && ids.last == "ft:gpt-4.1:me" && ids.filter { $0 == "gpt-4.1" }.count == 1)
-        #expect(!settings.choices(includingFetched: false).map(\.id).contains("gpt-4.1-nano"))
+        #expect(!settings.models(includingFetched: false).contains("gpt-4.1-nano"))
     }
 
     @Test func migratesTheOldThinkingToggle() throws {
         let old = Data(#"{"preset":"deepSeek","baseURL":"https://api.deepseek.com/v1","model":"deepseek-chat"}"#.utf8)
         var on = try JSONDecoder().decode(AISettings.self, from: old)
         on.migrateLegacy(deepThinking: true)
-        #expect(on.model == "deepseek-reasoner" && on.thinks)
+        #expect(on.model == "deepseek-flash" && on.effectiveLevel == .high)
         var off = try JSONDecoder().decode(AISettings.self, from: old)
         off.migrateLegacy(deepThinking: false)
-        #expect(off.model == "deepseek-chat" && !off.thinks)
+        #expect(off.model == "deepseek-flash" && !off.thinks)
         var custom = try JSONDecoder().decode(AISettings.self, from: Data(#"{"preset":"openAI","baseURL":"https://api.openai.com/v1","model":"gpt-4.1","reasoningModel":"o3"}"#.utf8))
         custom.migrateLegacy(deepThinking: true)
         #expect(custom.model == "o3" && custom.thinks)
@@ -95,10 +122,11 @@ struct ProviderRequestTests {
         let roles = (body["messages"] as? [[String: String]])?.map { $0["role"] ?? "" }
         #expect(roles == ["user", "assistant", "user"])
 
-        settings.thinking = true
+        settings.thinkingLevel = .medium
         let thinking = try AIClient().makeRequest(settings: settings, apiKey: "sk-ant", system: "SYS", history: [], prompt: "p")
         body = try json(thinking)
         #expect((body["thinking"] as? [String: Any])?["type"] as? String == "enabled")
+        #expect((body["thinking"] as? [String: Any])?["budget_tokens"] as? Int == 8_000)
         #expect(body["temperature"] == nil && (body["max_tokens"] as? Int ?? 0) > 8_000)
         #expect(thinking.urlRequest.timeoutInterval == 180)
 
@@ -121,7 +149,7 @@ struct ProviderRequestTests {
         #expect((generation["thinkingConfig"] as? [String: Any])?["thinkingBudget"] as? Int == 0)
         #expect((body["contents"] as? [[String: Any]])?.map { $0["role"] as? String } == ["user", "model", "user"])
 
-        settings.thinking = true
+        settings.thinkingLevel = .high
         body = try json(try AIClient().makeRequest(settings: settings, apiKey: "AIza", system: "SYS", history: [], prompt: "c"))
         let thinkingConfig = (body["generationConfig"] as? [String: Any])?["thinkingConfig"] as? [String: Any]
         #expect(thinkingConfig?["thinkingBudget"] as? Int == -1 && thinkingConfig?["includeThoughts"] as? Bool == true)
@@ -141,7 +169,7 @@ struct ProviderRequestTests {
         var gpt5 = AISettings(provider: .openAI, model: "gpt-5-mini")
         var body = try json(try AIClient().makeRequest(settings: gpt5, apiKey: "k", system: "s", history: [], prompt: "p"))
         #expect(body["reasoning_effort"] as? String == "minimal" && body["temperature"] == nil && body["response_format"] != nil)
-        gpt5.thinking = true
+        gpt5.thinkingLevel = .medium
         body = try json(try AIClient().makeRequest(settings: gpt5, apiKey: "k", system: "s", history: [], prompt: "p"))
         #expect(body["reasoning_effort"] as? String == "medium")
 
@@ -149,9 +177,21 @@ struct ProviderRequestTests {
         let request = try AIClient().makeRequest(settings: glm, apiKey: "k", system: "s", history: [], prompt: "p")
         #expect(request.urlRequest.url?.absoluteString == "https://open.bigmodel.cn/api/paas/v4/chat/completions")
         #expect((try json(request)["thinking"] as? [String: String])?["type"] == "disabled")
-        glm.thinking = true
+        glm.thinkingLevel = .high
         body = try json(try AIClient().makeRequest(settings: glm, apiKey: "k", system: "s", history: [], prompt: "p"))
         #expect((body["thinking"] as? [String: String])?["type"] == "enabled" && body["response_format"] == nil)
+
+        // DeepSeek V4 thinks by default, so "off" must be sent explicitly.
+        var deepSeek = AISettings(provider: .deepSeek)
+        body = try json(try AIClient().makeRequest(settings: deepSeek, apiKey: "k", system: "s", history: [], prompt: "p"))
+        #expect((body["thinking"] as? [String: String])?["type"] == "disabled" && body["reasoning_effort"] == nil)
+        #expect(body["temperature"] as? Int == 0 && body["response_format"] != nil)
+        deepSeek.select(model: "deepseek-v4-pro")
+        deepSeek.thinkingLevel = .max
+        let maxed = try AIClient().makeRequest(settings: deepSeek, apiKey: "k", system: "s", history: [], prompt: "p")
+        body = try json(maxed)
+        #expect((body["thinking"] as? [String: String])?["type"] == "enabled" && body["reasoning_effort"] as? String == "max")
+        #expect(body["temperature"] == nil && body["response_format"] == nil && maxed.urlRequest.timeoutInterval == 300)
 
         let chat = try json(try AIClient().makeRequest(settings: AISettings(provider: .qwen), apiKey: "k", system: "s", history: [], prompt: "p"))
         #expect(chat["temperature"] as? Int == 0 && chat["thinking"] == nil)
@@ -182,5 +222,23 @@ struct ProviderRequestTests {
         #expect(gemini.requests.first?.value(forHTTPHeaderField: "x-goog-api-key") == "k")
 
         await #expect(throws: AIFailure.missingKey) { try await AIClient().listModels(settings: AISettings(provider: .anthropic), apiKey: nil) }
+    }
+}
+
+struct FileKeyStoreTests {
+    @Test func keysArePerServiceAndOnlyReadableByTheUser() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("api-keys.json")
+        let store = FileKeyStore(url: url)
+        #expect(store.read(for: "deepSeek") == nil)
+        try store.save("sk-one", for: "deepSeek")
+        try store.save("sk-two", for: "anthropic")
+        #expect(store.read(for: "deepSeek") == "sk-one" && FileKeyStore(url: url).read(for: "anthropic") == "sk-two")
+        let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        try store.save("sk-three", for: "deepSeek")
+        #expect(store.read(for: "deepSeek") == "sk-three")
+        store.delete(for: "deepSeek")
+        store.delete(for: "anthropic")
+        #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 }

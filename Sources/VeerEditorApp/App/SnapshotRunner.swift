@@ -212,10 +212,10 @@ enum SnapshotRunner {
         await waitIdle(store)
         await shot("27-exclude-regions")
 
-        // Deep thinking is a model choice; settings list the service's models.
-        store.selectProvider(.anthropic)
+        // Model and thinking strength; settings list the service's models.
+        store.settings = AISettings(provider: .deepSeek, model: "deepseek-v4-pro", thinkingLevel: .high)
+        store.settings.fetchedModels = ["deepseek-flash", "deepseek-v4-pro"]
         store.sessionKey = "sk-snapshot"
-        store.settings.select(ModelChoice(model: "claude-sonnet-5-5", thinking: true))
         store.useAI = true
         await shot("28-model-choice")
         // The Settings scene cannot be opened from here; host the same view in a window of its own.

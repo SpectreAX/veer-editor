@@ -20,7 +20,7 @@ public enum AIFailure: Error, Equatable, Sendable {
         case .missingKey: "还没有设置 AI 服务的 API Key。"
         case .invalidEndpoint(let reason): reason
         case .network: "无法连接 AI 服务，请检查网络与服务地址。"
-        case .timeout: "AI 服务长时间没有响应（普通模型 60 秒，深度思考 180 秒）。"
+        case .timeout: "AI 服务长时间没有响应（不思考 60 秒，深度思考 180 秒，最高强度 300 秒）。"
         case .unauthorized(let code): "AI 服务拒绝了请求（HTTP \(code)），请检查 API Key 与模型权限。"
         case .rateLimited: "AI 服务限流或额度不足（HTTP 429），请稍后重试。"
         case .server(let code): "AI 服务暂时出错（HTTP \(code)），可以重试。"
@@ -157,7 +157,8 @@ public struct AIClient: Sendable {
         guard !model.isEmpty else { throw AIFailure.invalidEndpoint("请选择或填写模型。") }
         let format = settings.provider.format
         let style = settings.thinkingStyle
-        let thinks = settings.thinks
+        let level = settings.effectiveLevel
+        let thinks = level != .off
         let turns = history + [("user", prompt)] + followUps
 
         let url: URL
@@ -170,21 +171,27 @@ public struct AIClient: Sendable {
             switch (style, thinks) {
             case (.openAIEffort, _):
                 // GPT-5 family accepts only the default temperature.
-                body["reasoning_effort"] = thinks ? "medium" : "minimal"
+                body["reasoning_effort"] = thinks ? level.rawValue : "minimal"
                 body["response_format"] = ["type": "json_object"]
             case (_, true):
-                // Reasoning models are slow and several reject temperature or JSON mode.
+                // Reasoning is slow, and several services ignore or reject temperature and JSON mode.
                 if style == .zhipu { body["thinking"] = ["type": "enabled"] }
+                if style == .deepSeek {
+                    body["thinking"] = ["type": "enabled"]
+                    body["reasoning_effort"] = level.rawValue
+                }
             case (_, false):
-                if style == .zhipu { body["thinking"] = ["type": "disabled"] }
+                // DeepSeek V4 and GLM think unless told not to.
+                if style == .zhipu || style == .deepSeek { body["thinking"] = ["type": "disabled"] }
                 body["temperature"] = 0
                 body["response_format"] = ["type": "json_object"]
             }
         case .anthropic:
             url = try Self.url(settings.baseURL, appending: "/messages")
-            body = ["model": model, "system": system, "max_tokens": thinks ? 16_000 : 4_096,
+            let budget = [ThinkingLevel.low: 2_048, .medium: 8_000, .high: 16_000, .max: 32_000][level] ?? 0
+            body = ["model": model, "system": system, "max_tokens": budget + 4_096,
                     "messages": Self.alternating(turns).map { ["role": $0.role, "content": $0.content] }]
-            if thinks { body["thinking"] = ["type": "enabled", "budget_tokens": 8_000] } else { body["temperature"] = 0 }
+            if thinks { body["thinking"] = ["type": "enabled", "budget_tokens": budget] } else { body["temperature"] = 0 }
         case .gemini:
             let path = model.hasPrefix("models/") ? String(model.dropFirst(7)) : model
             guard let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/:"))) else {
@@ -194,7 +201,10 @@ public struct AIClient: Sendable {
             var generation: [String: Any] = ["responseMimeType": "application/json"]
             if !thinks { generation["temperature"] = 0 }
             switch style {
-            case .gemini: generation["thinkingConfig"] = thinks ? ["thinkingBudget": -1, "includeThoughts": true] : ["thinkingBudget": 0]
+            case .gemini:
+                // -1 lets the model decide how much to think.
+                let budget = [ThinkingLevel.low: 1_024, .medium: 8_192, .high: -1, .max: -1][level] ?? 0
+                generation["thinkingConfig"] = thinks ? ["thinkingBudget": budget, "includeThoughts": true] : ["thinkingBudget": 0]
             case .intrinsic: generation["thinkingConfig"] = ["includeThoughts": true]
             default: break
             }
@@ -203,7 +213,7 @@ public struct AIClient: Sendable {
                     "generationConfig": generation]
         }
 
-        var request = URLRequest(url: url, timeoutInterval: thinks ? 180 : 60)
+        var request = URLRequest(url: url, timeoutInterval: level == .max ? 300 : thinks ? 180 : 60)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         Self.authorize(&request, format: format, apiKey: apiKey)

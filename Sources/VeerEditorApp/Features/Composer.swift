@@ -112,16 +112,23 @@ struct ComposerView: View {
             }
             .pickerStyle(.inline)
             Divider()
-            Picker("模型 · \(store.settings.provider.title)", selection: Binding(get: { store.settings.choice.id }, set: { id in
-                if let choice = composerChoices.first(where: { $0.id == id }) { store.settings.select(choice) }
+            Picker("模型 · \(store.settings.provider.title)", selection: Binding(get: { store.settings.model }, set: { model in
+                store.settings.select(model: model)
                 store.useAI = true
             })) {
-                ForEach(composerChoices) { choice in
-                    Label(choice.title, systemImage: choice.thinking ? "brain" : "sparkles").tag(choice.id)
-                }
+                ForEach(composerModels, id: \.self) { Text($0).tag($0) }
             }
             .pickerStyle(.inline)
             .disabled(!store.aiConfigured)
+            let style = store.settings.thinkingStyle
+            if style.adjustable {
+                Divider()
+                Picker("深度思考", selection: Binding(get: { store.settings.effectiveLevel }, set: { store.settings.thinkingLevel = $0 })) {
+                    ForEach(style.levels) { Text(style.title(of: $0)).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .disabled(!store.aiConfigured)
+            }
             Divider()
             Button("AI 设置…") { openSettings() }
         } label: {
@@ -139,8 +146,8 @@ struct ComposerView: View {
     }
 
     /// Suggested models plus the fetched list when it is short enough for a menu.
-    private var composerChoices: [ModelChoice] {
-        store.settings.choices(includingFetched: store.settings.fetchedModels.count <= 16)
+    private var composerModels: [String] {
+        store.settings.models(includingFetched: store.settings.fetchedModels.count <= 16)
     }
 
     private func pick(_ item: CompletionItem) {

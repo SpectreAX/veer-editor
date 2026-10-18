@@ -55,7 +55,7 @@ Sources/VeerCore/        纯逻辑，可单测
   Anonymizer / AIClient  匿名出口表；OpenAI 兼容客户端
   LineDiff / RuleMatcher patience 行差异；域名首条命中
   Validator              mihomo -t（临时目录、超时、输出脱敏）
-  Session / Storage      会话、钥匙串、订阅下载
+  Session / Storage      会话、API Key 文件、订阅下载
 Sources/VeerEditorApp/   SwiftUI 应用
   Model/EditorStore      状态机：生成、逐项接受、写入、撤销/重做、导出
   DesignSystem/          Token（4pt 间距、圆角、颜色）与通用组件

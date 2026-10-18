@@ -122,18 +122,19 @@ struct StoreTests {
         let store = EditorStore(store: SessionStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
                                 keyStore: keys, defaults: defaults, persist: false)
         #expect(store.settings.baseURL == "https://api.deepseek.com/v1")
-        #expect(store.settings.modelLabel == "deepseek-reasoner · 深度思考")
+        #expect(store.settings.modelLabel == "deepseek-flash · 深度思考 · 高")
         #expect(defaults.object(forKey: "deepThinking") == nil)
         #expect(store.keySaved && store.apiKey == "sk-deepseek")
 
         store.selectProvider(.anthropic)
         #expect(store.settings.model == "claude-sonnet-5-5" && !store.keySaved && store.apiKey == nil)
         store.sessionKey = "sk-ant-session"
-        store.settings.select(ModelChoice(model: "claude-haiku-5-5", thinking: true))
+        store.settings.select(model: "claude-haiku-5-5")
+        store.settings.thinkingLevel = .low
         store.selectProvider(.deepSeek)
-        #expect(store.apiKey == "sk-deepseek" && store.settings.model == "deepseek-reasoner")
+        #expect(store.apiKey == "sk-deepseek" && store.settings.model == "deepseek-flash")
         store.selectProvider(.anthropic)
-        #expect(store.apiKey == "sk-ant-session" && store.settings.modelLabel == "claude-haiku-5-5 · 深度思考")
+        #expect(store.apiKey == "sk-ant-session" && store.settings.modelLabel == "claude-haiku-5-5 · 深度思考 · 低")
     }
 
     @Test func exportRefusesTheOriginalFileAndWritesTheDraft() async throws {

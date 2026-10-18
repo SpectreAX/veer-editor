@@ -64,12 +64,11 @@ struct UnderstandingAndRepairTests {
     }
 
     @Test func reasoningModelsDropJSONModeAndWaitLonger() throws {
-        var settings = AISettings(provider: .deepSeek)
-        settings.select(ModelChoice(model: "deepseek-reasoner", thinking: true))
-        #expect(settings.thinks && settings.modelLabel == "deepseek-reasoner · 深度思考")
+        let settings = AISettings(provider: .openRouter, model: "deepseek/deepseek-r1")
+        #expect(settings.thinks && settings.modelLabel == "deepseek/deepseek-r1 · 深度思考")
         let request = try AIClient().makeRequest(settings: settings, apiKey: "k", system: "s", history: [], prompt: "p").urlRequest
         let body = try #require(try JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
-        #expect(body["model"] as? String == "deepseek-reasoner" && body["response_format"] == nil && body["temperature"] == nil)
+        #expect(body["model"] as? String == "deepseek/deepseek-r1" && body["response_format"] == nil && body["temperature"] == nil)
         #expect(request.timeoutInterval == 180)
     }
 
@@ -105,7 +104,7 @@ struct UnderstandingAndRepairTests {
         let engine = EditorEngine(ai: AIClient(transport: transport), validator: Pass(), verifier: Verified())
         let events = Events()
         let request = EditorEngine.Request(prompt: "所有国外AI服务，策略组排除所有港澳节点", draft: doc, regions: RegionalFixture.regions(doc), useAI: true,
-                                           settings: AISettings(provider: .deepSeek, model: "deepseek-reasoner"), apiKey: "k")
+                                           settings: AISettings(provider: .deepSeek, model: "deepseek-v4-pro", thinkingLevel: .high), apiKey: "k")
         let output = try await engine.run(request) { event in
             switch event {
             case .retrying(let problem): events.add("retry:\(problem)")

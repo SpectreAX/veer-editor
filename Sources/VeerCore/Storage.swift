@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// Persists sessions as JSON files readable only by the user. Never stores API keys or
 /// subscription URLs (sessions only record the host).
@@ -57,61 +56,70 @@ public struct SessionStore: Sendable {
     }
 }
 
-/// API key storage in the login Keychain.
 /// API keys, one per AI service (`AIProvider.rawValue`).
 public protocol KeyStoring: Sendable {
     func read(for provider: String) -> String?
     func save(_ key: String, for provider: String) throws
     func delete(for provider: String)
-    /// Moves a key saved before keys were per service to `provider`.
-    func migrateLegacy(to provider: String)
 }
 
-public extension KeyStoring {
-    func migrateLegacy(to provider: String) {}
-}
+/// API keys in a JSON file readable only by the user (mode 0600) next to the sessions. Not the
+/// Keychain: the app is ad-hoc signed, so every rebuild made macOS ask again for access.
+public final class FileKeyStore: KeyStoring, @unchecked Sendable {
+    public let url: URL
+    private let lock = NSLock()
 
-public struct KeychainKeyStore: KeyStoring {
-    let service: String
-    /// Account of the single key stored before 2026-10-19.
-    static let legacyAccount = "ai-api-key"
+    public init(url: URL = FileKeyStore.defaultURL) { self.url = url }
 
-    public init(service: String = "com.yamax.veer.ai-editor") {
-        self.service = service
+    public static var defaultURL: URL {
+        SessionStore.defaultDirectory.deletingLastPathComponent().appendingPathComponent("api-keys.json")
     }
 
-    func query(_ account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+    private func load() -> [String: String] {
+        guard let data = try? Data(contentsOf: url) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
     }
 
-    static func account(_ provider: String) -> String { "\(legacyAccount).\(provider)" }
-
-    func read(account: String) -> String? {
-        var query = query(account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+    private func store(_ keys: [String: String]) throws {
+        let manager = FileManager.default
+        if keys.isEmpty {
+            try? manager.removeItem(at: url)
+            return
+        }
+        try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                    attributes: [.posixPermissions: 0o700])
+        let data = try JSONEncoder().encode(keys)
+        // Create with 0600 before writing so the key is never readable by others, even briefly.
+        if !manager.fileExists(atPath: url.path) {
+            guard manager.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
+                throw EditorError("无法保存 API Key。")
+            }
+        }
+        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: data)
     }
 
-    func save(_ key: String, account: String) throws {
-        SecItemDelete(query(account) as CFDictionary)
-        var attributes = query(account)
-        attributes[kSecValueData as String] = Data(key.utf8)
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else { throw EditorError("无法保存到钥匙串（错误 \(status)）。") }
+    public func read(for provider: String) -> String? {
+        lock.withLock { load()[provider] }
     }
 
-    public func read(for provider: String) -> String? { read(account: Self.account(provider)) }
-    public func save(_ key: String, for provider: String) throws { try save(key, account: Self.account(provider)) }
-    public func delete(for provider: String) { SecItemDelete(query(Self.account(provider)) as CFDictionary) }
+    public func save(_ key: String, for provider: String) throws {
+        try lock.withLock {
+            var keys = load()
+            keys[provider] = key
+            do { try store(keys) } catch let error as EditorError { throw error } catch { throw EditorError("无法保存 API Key：\(error.localizedDescription)") }
+        }
+    }
 
-    public func migrateLegacy(to provider: String) {
-        guard let legacy = read(account: Self.legacyAccount) else { return }
-        if read(for: provider) == nil { try? save(legacy, for: provider) }
-        if read(for: provider) != nil { SecItemDelete(query(Self.legacyAccount) as CFDictionary) }
+    public func delete(for provider: String) {
+        lock.withLock {
+            var keys = load()
+            keys[provider] = nil
+            try? store(keys)
+        }
     }
 }
 

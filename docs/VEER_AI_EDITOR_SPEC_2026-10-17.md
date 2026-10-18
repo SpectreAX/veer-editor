@@ -61,7 +61,7 @@ Veer AI Editor 让你用一句话修改 Mihomo 分流规则，每一处改动都
 | 现有规则 | 本机 | 是，只含规则类型、公共分类名（GEOSITE/GEOIP、目录规则集名）和匿名出口；具体域名 / IP 默认替换为占位符，可在设置中打开 |
 | 节点协议与参数、DNS / TUN / 控制器等其他配置 | 本机 | **否** |
 | 本轮之前的对话 | 本机 | 是，已匿名化的摘要（用于追问上下文） |
-| API Key | macOS 钥匙串（或仅本次会话内存） | 仅作为请求头发给用户配置的 AI 服务 |
+| API Key | 本机文件 `~/Library/Application Support/Veer AI Editor/api-keys.json`（权限 0600，按服务分别保存），或仅本次运行的内存 | 仅作为请求头发给用户配置的 AI 服务 |
 | 订阅链接 | 仅导入时使用，不持久化 | 否；会话中只记录主机名 |
 
 要求：
@@ -304,7 +304,7 @@ native/macos-editor/
 
 ### 6.7 设置（⌘,）
 
-- **AI**：服务预设、Base URL、模型、API Key（安全输入框，保存在钥匙串 / 仅本次会话），“测试连接”及结果；已保存时只显示“已保存到钥匙串”，不回填。
+- **AI**：服务预设、Base URL、模型、API Key（安全输入框，记住在本机 / 仅本次运行），“测试连接”及结果；已保存时只显示“已保存在本机”，不回填。
 - **隐私**：解释发送内容；“对话中显示发送内容入口”开关；“清除所有本地会话”。
 - **校验**：内置 Mihomo 版本、状态（可用/不可用）、“导出前默认校验”开关。
 
@@ -438,7 +438,7 @@ native/macos-editor/
 ### 未验证
 
 - 真实 AI 服务请求（只验证了请求构造、错误分类与匿名化；没有使用真实 Key）。
-- 真实订阅链接导入、钥匙串读写（测试使用内存实现）。
+- 真实订阅链接导入（Key 文件读写有单独测试，其余测试使用内存实现）。
 - VoiceOver 朗读、输入法组字下的回车行为、减少透明度/增强对比度下的实际外观。
 - 公开分发签名与公证。
 
@@ -502,3 +502,13 @@ native/macos-editor/
 - API Key 按服务分别保存在钥匙串；切换服务时恢复该服务上次的地址和模型。原有的单个 Key 迁移给当前服务。
 - 开关改为勾选框：审阅卡片的“接受”、设置中的选项与导出前校验。
 - 未验证：没有用真实的 Claude、Gemini、Kimi、GLM、xAI 等服务测试；建议模型名称以各服务当前文档为准，可用“从服务获取”核对。
+
+### 2026-10-19：去除钥匙串、DeepSeek V4 与思考强度
+
+- API Key 不再保存到钥匙串（应用为临时签名，每次重新构建都会再次请求钥匙串授权）。“记住 API Key”改为保存在 `~/Library/Application Support/Veer AI Editor/api-keys.json`：按服务分别保存，文件权限 0600、目录 0700，只有当前用户可读；取消勾选则只在本次运行有效。旧版本留在钥匙串里的条目不会被读取（读取会再次弹出授权），可以在“钥匙串访问”中搜索 `com.yamax.veer.ai-editor` 删除。上一节“API Key 按服务分别保存在钥匙串”由本节取代。
+- DeepSeek 模型更新为 `deepseek-flash`（DeepSeek-V4.1-Flash）和 `deepseek-v4-pro`（DeepSeek-V4-Pro）。`deepseek-chat` / `deepseek-reasoner` 已于 2026-07-24 停用，保存的设置和获取到的列表会自动替换：chat → Flash 不思考，reasoner → Flash 深度思考（高）。
+- 思考从“模型的一个选项”改为“模型 + 思考强度”：模型菜单只列模型，另有“深度思考”强度（不思考 / 低 / 中 / 高 / 最高，按模型支持的范围显示）。
+  - DeepSeek V4：不思考 / 低 / 高 / 最高，发送 `thinking.type`（enabled / disabled）与 `reasoning_effort`（low / high / max）。V4 默认思考，所以“不思考”时显式发送 disabled。依据 DeepSeek 文档（2026-10-19 查阅）。
+  - GPT-5：`reasoning_effort` minimal / low / medium / high；Claude：`budget_tokens` 2048 / 8000 / 16000；Gemini 2.5 Flash：`thinkingBudget` 0 / 1024 / 8192 / 动态；GLM：只能开关；o4-mini、R1 等推理模型始终思考，不显示强度选择。
+  - 选择的强度在切换模型时保留，模型不支持时使用最接近的一档。超时：不思考 60 秒，思考 180 秒，最高 300 秒。
+- 输入框标签显示为“AI · deepseek-v4-pro · 深度思考 · 高”。

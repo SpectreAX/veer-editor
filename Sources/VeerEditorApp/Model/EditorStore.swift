@@ -75,7 +75,7 @@ final class EditorStore {
         get { sessionKeys[settings.provider] }
         set { sessionKeys[settings.provider] = newValue }
     }
-    /// Whether the current service has a key in the keychain.
+    /// Whether the current service has a saved key.
     var keySaved: Bool
 
     let store: SessionStore
@@ -98,7 +98,7 @@ final class EditorStore {
     @ObservationIgnored private var saveWork: [UUID: DispatchWorkItem] = [:]
     @ObservationIgnored private var toastWork: DispatchWorkItem?
 
-    init(store: SessionStore = SessionStore(), keyStore: KeyStoring = KeychainKeyStore(), engine: EditorEngine = EditorEngine(),
+    init(store: SessionStore = SessionStore(), keyStore: KeyStoring = FileKeyStore(), engine: EditorEngine = EditorEngine(),
          defaults: UserDefaults = .standard, persist: Bool = true) {
         self.store = store
         self.keyStore = keyStore
@@ -117,7 +117,6 @@ final class EditorStore {
         useAI = defaults.object(forKey: "useAI") as? Bool ?? false
         validateBeforeExport = defaults.object(forKey: "validateBeforeExport") as? Bool ?? true
         shareRuleLiterals = defaults.object(forKey: "shareRuleLiterals") as? Bool ?? false
-        keyStore.migrateLegacy(to: settings.provider.rawValue)
         keySaved = keyStore.read(for: settings.provider.rawValue) != nil
         if persist {
             sessions = store.loadAll()
