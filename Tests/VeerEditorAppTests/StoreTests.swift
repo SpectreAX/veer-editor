@@ -117,7 +117,8 @@ struct StoreTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let source = directory.appendingPathComponent("config.yaml")
         try SampleConfig.text.write(to: source, atomically: true, encoding: .utf8)
-        store.importFile(source)
+        store.prepareImport(file: source)
+        store.confirmPendingImport()
         store.confirmExits()
         let link = directory.appendingPathComponent("alias.yaml")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: source)
@@ -143,7 +144,35 @@ struct StoreTests {
         #expect(store.draft?.targets.map(\.name).contains("日本节点") == true)
         #expect(store.regions["日本节点"] == .jp)
         store.importText("not a config")
-        #expect(store.importError?.contains("无法识别") == true)
+        guard case .failed(let message) = store.importStage else { Issue.record("expected failure"); return }
+        #expect(message.contains("无法识别"))
+    }
+
+    @Test func importPreviewWaitsForConfirmation() throws {
+        let store = makeStore()
+        let before = store.sessions.count
+        store.openImport(prefill: SampleConfig.text)
+        #expect(store.showingImport)
+        store.submitImportInput()
+        guard case .preview(let pending) = store.importStage else { Issue.record("expected preview"); return }
+        #expect(pending.title == "粘贴的配置" && pending.analysis?.proxyCount == 5 && pending.link == nil)
+        #expect(store.sessions.count == before)
+        store.cancelImport()
+        #expect(store.sessions.count == before && !store.showingImport)
+        store.openImport(prefill: SampleConfig.text)
+        store.submitImportInput()
+        store.confirmPendingImport()
+        #expect(store.sessions.count == before + 1 && store.current?.exitsConfirmed == false)
+    }
+
+    @Test func linksAreRecognizedAndValidated() {
+        let store = makeStore()
+        store.openImport(prefill: "http://sub.example.invalid/x")
+        store.submitImportInput()
+        // Not HTTPS, so it is content, which is not a configuration.
+        guard case .failed = store.importStage else { Issue.record("expected failure"); return }
+        #expect(SubscriptionFetcher.looksLikeLink(" https://sub.example.invalid/api?token=1 \n"))
+        #expect(!SubscriptionFetcher.looksLikeLink("https://a.example.invalid\nhttps://b.example.invalid"))
     }
 
     @Test func commandsRouteToTheInspector() {

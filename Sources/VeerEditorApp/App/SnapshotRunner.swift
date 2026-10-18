@@ -115,12 +115,30 @@ enum SnapshotRunner {
         store.inspectorPresented = true
         await shot("18-minimum", size: Metrics.minWindow)
 
-        store.showingSubscriptionSheet = true
-        await settle(0.3)
-        store.importError = "链接返回了重定向，Veer 不会自动跟随。请使用最终地址。"
-        await shot("19-subscription")
-        store.showingSubscriptionSheet = false
-        store.importError = nil
+        store.openImport(prefill: "https://sub.example.invalid/api/v1/client/subscribe?token=demo")
+        await shot("19-import-input")
+        store.importStage = .failed("链接返回了重定向，Veer 不会自动跟随。请使用最终地址。")
+        await shot("19b-import-failed")
+        store.prepareImport(text: SampleConfig.text, title: SampleConfig.title, source: .sample)
+        await shot("19c-import-preview", size: CGSize(width: 1320, height: 900))
+        // A multi-protocol subscription, so the charts have several segments.
+        var demo: [String] = []
+        let regions = ["🇭🇰 香港", "🇯🇵 日本", "🇺🇸 美国", "🇸🇬 新加坡", "🇹🇼 台湾"]
+        for i in 0..<36 {
+            let name = "\(regions[i % regions.count]) \(String(format: "%02d", i + 1))"
+            switch i % 9 {
+            case 0, 1, 2, 3: demo.append("ss://\(Data("aes-128-gcm:pw\(i)".utf8).base64EncodedString())@n\(i).example.invalid:8388#\(name)")
+            case 4, 5: demo.append("trojan://pw@n\(i).example.invalid:443?sni=n\(i).example.invalid#\(name) Trojan")
+            case 6: demo.append("anytls://pw@n\(i).example.invalid:443?sni=n\(i).example.invalid#\(name) AnyTLS")
+            case 7: demo.append("vless://11111111-1111-1111-1111-111111111111@n\(i).example.invalid:443?security=tls&type=ws&path=%2F#\(name) VLESS")
+            default: demo.append("hysteria2://auth@n\(i).example.invalid:443?sni=n\(i).example.invalid#\(name) Hy2")
+            }
+        }
+        store.prepareImport(text: Data(demo.joined(separator: "\n").utf8).base64EncodedString(), title: "TAG_Demo_1018.yaml",
+                            source: .subscription(host: "sub.example.invalid"),
+                            usage: SubscriptionUsage(upload: 3_221_225_472, download: 41_875_931_136, total: 214_748_364_800, expire: Date(timeIntervalSince1970: 1_798_761_600)))
+        await shot("19d-import-preview-subscription", size: CGSize(width: 1320, height: 900))
+        store.cancelImport()
         await settle(0.4)
         let links = [
             "trojan://pw@jp.example.invalid:443?sni=jp.example.invalid#🇯🇵 东京 Trojan",

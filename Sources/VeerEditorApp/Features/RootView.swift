@@ -15,8 +15,7 @@ struct RootView: View {
         }
         .navigationTitle(store.showingStart || store.current == nil ? "Veer AI Editor" : store.current!.title)
         .navigationSubtitle(store.showingStart ? "" : store.subtitle)
-        .sheet(isPresented: $store.showingSubscriptionSheet) { SubscriptionSheet() }
-        .sheet(isPresented: $store.showingPasteSheet) { PasteSheet() }
+        .sheet(isPresented: $store.showingImport, onDismiss: { store.cancelImport() }) { ImportSheet() }
         .sheet(isPresented: $store.showingExportSheet) { ExportSheet() }
         .sheet(item: Binding(get: { store.payloadTurn }, set: { _ in store.payloadTurnID = nil })) { turn in
             PayloadSheet(turn: turn)

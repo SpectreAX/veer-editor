@@ -74,9 +74,9 @@ struct EditorCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("新建导入") { store.newImport() }.keyboardShortcut("n")
-            Button("导入配置文件…") { ImportPanel.open(store: store) }.keyboardShortcut("o")
-            Button("粘贴配置导入…") { store.showingPasteSheet = true }.keyboardShortcut("v", modifiers: [.command, .shift])
-            Button("从订阅链接导入…") { store.showingSubscriptionSheet = true }
+            Button("导入配置…") { store.openImport() }.keyboardShortcut("o")
+            Button("用剪贴板内容导入…") { store.openImport(prefill: NSPasteboard.general.string(forType: .string)) }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
             Divider()
             Button("导出配置副本…") { store.requestExport() }.keyboardShortcut("e").disabled(store.current == nil)
         }
@@ -100,17 +100,5 @@ struct EditorCommands: Commands {
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
             }
         }
-    }
-}
-
-enum ImportPanel {
-    static func open(store: EditorStore) {
-        let panel = NSOpenPanel()
-        // Any file: subscriptions are often saved as .txt or without an extension; content decides.
-        panel.allowedContentTypes = []
-        panel.allowsMultipleSelection = false
-        panel.message = "选择 Mihomo / Clash 配置、Base64 订阅或分享链接列表（最大 2 MB）"
-        panel.prompt = "导入"
-        if panel.runModal() == .OK, let url = panel.url { store.importFile(url) }
     }
 }

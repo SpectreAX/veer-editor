@@ -98,7 +98,89 @@ public struct KeychainKeyStore: KeyStoring {
     public func delete() { SecItemDelete(query as CFDictionary) }
 }
 
-/// Imports a configuration from an HTTPS link without following redirects (max 2 MB).
+/// Traffic and expiry reported by a subscription's `subscription-userinfo` header.
+public struct SubscriptionUsage: Codable, Sendable, Equatable {
+    public var upload: Int64?
+    public var download: Int64?
+    public var total: Int64?
+    public var expire: Date?
+
+    public init(upload: Int64? = nil, download: Int64? = nil, total: Int64? = nil, expire: Date? = nil) {
+        self.upload = upload
+        self.download = download
+        self.total = total
+        self.expire = expire
+    }
+
+    public var used: Int64? {
+        guard upload != nil || download != nil else { return nil }
+        return (upload ?? 0) + (download ?? 0)
+    }
+
+    /// "upload=1; download=2; total=3; expire=1700000000"
+    public static func parse(_ header: String?) -> SubscriptionUsage? {
+        guard let header else { return nil }
+        var usage = SubscriptionUsage()
+        for part in header.split(separator: ";") {
+            let kv = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard kv.count == 2, let value = Double(kv[1]) else { continue }
+            switch kv[0].lowercased() {
+            case "upload": usage.upload = Int64(value)
+            case "download": usage.download = Int64(value)
+            case "total": usage.total = Int64(value)
+            case "expire": if value > 0 { usage.expire = Date(timeIntervalSince1970: value) }
+            default: break
+            }
+        }
+        return usage == SubscriptionUsage() ? nil : usage
+    }
+}
+
+/// What a subscription response says about itself, besides the body.
+public struct SubscriptionResponse: Sendable {
+    public let text: String
+    /// From `profile-title` or the `Content-Disposition` filename; nil when absent.
+    public let title: String?
+    public let usage: SubscriptionUsage?
+    public let updateIntervalHours: Int?
+
+    public init(text: String, headers: [String: String]) {
+        self.text = text
+        let lower = Dictionary(headers.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { a, _ in a })
+        title = Self.title(profileTitle: lower["profile-title"], disposition: lower["content-disposition"])
+        usage = SubscriptionUsage.parse(lower["subscription-userinfo"])
+        updateIntervalHours = lower["profile-update-interval"].flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    static func title(profileTitle: String?, disposition: String?) -> String? {
+        if var title = profileTitle?.trimmingCharacters(in: .whitespaces), !title.isEmpty {
+            if title.lowercased().hasPrefix("base64:") {
+                title = ShareLinkParser.base64String(String(title.dropFirst(7))) ?? ""
+            }
+            if let clean = clean(title) { return clean }
+        }
+        guard let disposition else { return nil }
+        // RFC 6266: prefer filename*=UTF-8''percent-encoded over filename="…".
+        for part in disposition.split(separator: ";").map({ $0.trimmingCharacters(in: .whitespaces) }) where part.lowercased().hasPrefix("filename*=") {
+            var value = String(part.dropFirst("filename*=".count))
+            if let quote = value.range(of: "''") { value = String(value[quote.upperBound...]) }
+            if let clean = clean(value.removingPercentEncoding ?? value) { return clean }
+        }
+        for part in disposition.split(separator: ";").map({ $0.trimmingCharacters(in: .whitespaces) }) where part.lowercased().hasPrefix("filename=") {
+            let value = String(part.dropFirst("filename=".count)).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            if let clean = clean(value.removingPercentEncoding ?? value) { return clean }
+        }
+        return nil
+    }
+
+    static func clean(_ raw: String) -> String? {
+        let name = raw.components(separatedBy: .newlines).joined(separator: " ")
+            .replacingOccurrences(of: "/", with: "_").trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : String(name.prefix(120))
+    }
+}
+
+/// Downloads a subscription over HTTPS without following redirects (max 2 MB).
 public struct SubscriptionFetcher: Sendable {
     public init() {}
 
@@ -110,7 +192,13 @@ public struct SubscriptionFetcher: Sendable {
         return url
     }
 
-    public func fetch(_ url: URL) async throws -> String {
+    /// True when the input is a single link rather than pasted content.
+    public static func looksLikeLink(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.contains("\n") && !trimmed.contains(" ") && trimmed.lowercased().hasPrefix("https://")
+    }
+
+    public func fetch(_ url: URL) async throws -> SubscriptionResponse {
         final class NoRedirect: NSObject, URLSessionTaskDelegate {
             func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest) async -> URLRequest? { nil }
         }
@@ -132,6 +220,9 @@ public struct SubscriptionFetcher: Sendable {
             if data.count > ConfigDocument.maxBytes { throw EditorError("订阅内容超过 2 MB。") }
         }
         guard let text = String(data: data, encoding: .utf8) else { throw EditorError("订阅内容不是 UTF-8 文本。") }
-        return text
+        let headers = http.allHeaderFields.reduce(into: [String: String]()) { result, pair in
+            if let key = pair.key as? String, let value = pair.value as? String { result[key] = value }
+        }
+        return SubscriptionResponse(text: text, headers: headers)
     }
 }

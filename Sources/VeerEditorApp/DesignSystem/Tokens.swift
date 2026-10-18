@@ -60,7 +60,29 @@ extension Color {
     static let diffRemoved = Color(nsColor: .systemRed).opacity(0.11)
 }
 
-nonisolated enum Typography {
+nonisolated /// Categorical chart colors in fixed order (never cycled), validated for adjacent-pair CVD
+/// separation on light (#ffffff) and dark (#1e1e1e) surfaces. Light slots 3–5 sit below 3:1
+/// contrast, so every chart shows a legend with exact counts. A 7th category folds into 其他.
+enum ChartPalette {
+    static let slots: [(light: UInt32, dark: UInt32)] = [
+        (0x2a78d6, 0x3987e5), (0xeb6834, 0xd95926), (0x1baf7a, 0x199e70),
+        (0xeda100, 0xc98500), (0xe87ba4, 0xd55181), (0x008300, 0x008300),
+    ]
+    static let maxSlots = 6
+
+    static func color(_ index: Int) -> Color {
+        let slot = slots[index % slots.count]
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? slot.dark : slot.light
+            return NSColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+        })
+    }
+
+    /// Neutral for the folded "其他" bucket: not a categorical hue.
+    static let other = Color(nsColor: .systemGray)
+}
+
+enum Typography {
     static let code = Font.system(.callout, design: .monospaced)
     static let codeSmall = Font.system(.caption, design: .monospaced)
 }

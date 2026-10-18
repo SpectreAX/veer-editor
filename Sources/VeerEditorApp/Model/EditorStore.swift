@@ -39,10 +39,10 @@ final class EditorStore {
     var inspectedTurnID: UUID?
     var diffScope: DiffScope = .turn
     var toast: Toast?
-    var importError: String?
-    var importing = false
-    var showingSubscriptionSheet = false
-    var showingPasteSheet = false
+    var showingImport = false
+    var importStage: ImportStage = .input
+    var importInput = ""
+    @ObservationIgnored private var importTask: Task<Void, Never>?
     var showingExportSheet = false
     var showingSettings = false
     var payloadTurnID: UUID?
@@ -145,57 +145,133 @@ final class EditorStore {
 
     // MARK: Import
 
-    func importFile(_ url: URL) {
+    /// One parsed import waiting for the user's confirmation in the preview panel.
+    struct PendingImport: Identifiable {
+        let id = UUID()
+        var title: String
+        var source: Session.Source
+        var result: ConfigImporter.Result
+        var analysis: ProfileAnalysis?
+        var usage: SubscriptionUsage?
+        /// Kept in memory only, for "刷新"; never persisted.
+        var link: URL?
+        var parsedAt = Date()
+    }
+
+    enum ImportStage {
+        case input
+        case loading(String)
+        case preview(PendingImport)
+        case failed(String)
+    }
+
+    /// Opens the single import sheet. `prefill` is pasted content or a link.
+    func openImport(prefill: String? = nil) {
+        importInput = prefill ?? ""
+        importStage = .input
+        showingImport = true
+    }
+
+    func cancelImport() {
+        importTask?.cancel()
+        importTask = nil
+        showingImport = false
+        importStage = .input
+    }
+
+    /// Parses whatever the user typed or pasted: a single HTTPS link is fetched as a subscription,
+    /// anything else is treated as configuration content.
+    func submitImportInput() {
+        let input = importInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return }
+        if SubscriptionFetcher.looksLikeLink(input) {
+            do { fetchSubscription(try SubscriptionFetcher.validate(input)) } catch { importStage = .failed(message(for: error)) }
+        } else {
+            prepareImport(text: input, title: "粘贴的配置", source: .pasted)
+        }
+    }
+
+    func chooseImportFile() {
+        let panel = NSOpenPanel()
+        // Any file: subscriptions are often saved as .txt or without an extension; content decides.
+        panel.allowedContentTypes = []
+        panel.allowsMultipleSelection = false
+        panel.message = "选择 Mihomo / Clash 配置、Base64 订阅或分享链接列表（最大 2 MB）"
+        panel.prompt = "选择"
+        if panel.runModal() == .OK, let url = panel.url { prepareImport(file: url) }
+    }
+
+    func prepareImport(file url: URL) {
+        showingImport = true
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
             let values = try url.resourceValues(forKeys: [.fileSizeKey])
-            if (values.fileSize ?? 0) > ConfigDocument.maxBytes { throw EditorError("配置超过 2 MB，请先拆分后再导入。") }
-            let data = try Data(contentsOf: url)
-            guard let text = String(data: data, encoding: .utf8) else { throw EditorError("文件不是 UTF-8 文本。") }
-            try addSession(title: url.lastPathComponent, source: .file(name: url.lastPathComponent, path: url.path), text: text)
+            if (values.fileSize ?? 0) > ConfigDocument.maxBytes { throw EditorError("文件超过 2 MB，请先拆分后再导入。") }
+            guard let text = String(data: try Data(contentsOf: url), encoding: .utf8) else { throw EditorError("文件不是 UTF-8 文本。") }
+            prepareImport(text: text, title: url.lastPathComponent, source: .file(name: url.lastPathComponent, path: url.path))
         } catch {
-            importError = message(for: error)
+            importStage = .failed(message(for: error))
         }
     }
 
-    func importText(_ text: String) {
-        do { try addSession(title: "粘贴的配置", source: .pasted, text: text); showingPasteSheet = false }
-        catch { importError = message(for: error) }
-    }
-
-    func loadSample() {
-        do { try addSession(title: SampleConfig.title, source: .sample, text: SampleConfig.text) }
-        catch { importError = message(for: error) }
-    }
-
-    func importSubscription(_ raw: String) async {
-        importing = true
-        importError = nil
-        defer { importing = false }
+    func prepareImport(text: String, title: String, source: Session.Source, usage: SubscriptionUsage? = nil, link: URL? = nil) {
         do {
-            let url = try SubscriptionFetcher.validate(raw)
-            let text = try await SubscriptionFetcher().fetch(url)
-            try addSession(title: url.host ?? "订阅", source: .subscription(host: url.host ?? ""), text: text)
-            showingSubscriptionSheet = false
+            let result = try ConfigImporter.normalize(text)
+            _ = try ConfigDocument.parse(result.text)
+            importStage = .preview(PendingImport(title: title, source: source, result: result,
+                                                 analysis: ProfileAnalysis.analyze(result.text), usage: usage, link: link))
         } catch {
-            importError = message(for: error)
+            importStage = .failed(message(for: error))
         }
     }
 
-    /// Detects the format (Mihomo YAML, node list, Base64 subscription, share links) and converts
-    /// to a full Mihomo configuration when needed.
-    private func addSession(title: String, source: Session.Source, text: String) throws {
-        let imported = try ConfigImporter.normalize(text)
-        _ = try ConfigDocument.parse(imported.text)
-        var session = Session(title: title, source: source, text: imported.text)
-        session.importNote = imported.note
+    func fetchSubscription(_ url: URL) {
+        importTask?.cancel()
+        importStage = .loading("正在下载订阅…")
+        showingImport = true
+        importTask = Task { [weak self] in
+            do {
+                let response = try await SubscriptionFetcher().fetch(url)
+                guard !Task.isCancelled else { return }
+                let host = url.host ?? "订阅"
+                self?.prepareImport(text: response.text, title: response.title ?? host, source: .subscription(host: host),
+                                    usage: response.usage, link: url)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.importStage = .failed(self?.message(for: error) ?? "")
+            }
+        }
+    }
+
+    func refreshPendingImport() {
+        if case .preview(let pending) = importStage, let link = pending.link { fetchSubscription(link) }
+    }
+
+    /// Creates the session from the previewed import.
+    func confirmPendingImport() {
+        guard case .preview(let pending) = importStage else { return }
+        var session = Session(title: pending.title, source: pending.source, text: pending.result.text)
+        session.importNote = pending.result.note
+        session.subscriptionUsage = pending.usage
         sessions.insert(session, at: 0)
         selectedID = session.id
         showingStart = false
-        importError = nil
         inspectedTurnID = nil
+        showingImport = false
+        importStage = .input
         scheduleSave(session, immediately: true)
+    }
+
+    /// Parse and confirm in one step (used for pasted content in tests and snapshots).
+    func importText(_ text: String, title: String = "粘贴的配置") {
+        prepareImport(text: text, title: title, source: .pasted)
+        if case .preview = importStage { confirmPendingImport() }
+    }
+
+    func loadSample() {
+        prepareImport(text: SampleConfig.text, title: SampleConfig.title, source: .sample)
+        confirmPendingImport()
     }
 
     func confirmExits() {

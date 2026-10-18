@@ -17,7 +17,7 @@ struct SidebarView: View {
         List(selection: Binding(get: { store.showingStart ? nil : store.selectedID }, set: { if let id = $0 { store.select(id) } })) {
             Section {
                 Button { store.newImport() } label: {
-                    Label("新建导入", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading)
+                    Label("新建导入", systemImage: "plus").foregroundStyle(Color.veerAccent).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
@@ -56,6 +56,9 @@ struct SidebarView: View {
                 }
                 Text("\(session.source.label) · \(session.updatedAt.formatted(.relative(presentation: .named)))")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if let usage = session.subscriptionUsage {
+                    UsageText(usage: usage).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
         }
