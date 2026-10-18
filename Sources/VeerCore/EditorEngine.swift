@@ -8,7 +8,7 @@ public struct EditorEngine: Sendable {
     public enum Output: Sendable {
         case proposal(plan: EditPlan, items: [ChangeItem], candidate: String, validation: ValidationResult)
         case noChange(String)
-        case clarification(String, suggestions: [String])
+        case clarification(String, options: [ClarifyOption])
         case outOfScope(String)
     }
 
@@ -77,17 +77,26 @@ public struct EditorEngine: Sendable {
         }
         await progress(.finished(0, detail: request.useAI ? "已由 \(request.settings.model) 解析" : "本地解析"))
 
-        let plan: EditPlan
         switch reply {
-        case let .clarification(question, suggestions):
-            let options = suggestions.isEmpty ? Array(request.draft.targets.filter { $0.kind == .group }.prefix(4).map(\.name)) : suggestions
-            return .clarification(question, suggestions: options)
+        case let .clarification(question, options):
+            let fallback = request.draft.targets.filter { $0.kind == .group }.prefix(4).map { ClarifyOption(label: $0.name) }
+            return .clarification(question, options: options.isEmpty ? Array(fallback) : options)
         case let .outOfScope(message):
             return .outOfScope(message)
-        case let .plan(value):
-            plan = value
+        case let .plan(plan):
+            return try await process(plan, draft: request.draft, progress: progress)
         }
+    }
 
+    /// Runs a plan the user built directly (for example from the rule-set sheet): same checks,
+    /// same review card, no parsing step.
+    public func run(plan: EditPlan, draft: ConfigDocument, progress: @Sendable (Progress) async -> Void) async throws -> Output {
+        await progress(.started(0))
+        await progress(.finished(0, detail: "手动添加"))
+        return try await process(plan, draft: draft, progress: progress)
+    }
+
+    func process(_ plan: EditPlan, draft: ConfigDocument, progress: @Sendable (Progress) async -> Void) async throws -> Output {
         await progress(.started(1))
         var exitNames: [String] = []
         for op in plan.operations {
@@ -97,13 +106,13 @@ public struct EditorEngine: Sendable {
             case .removeRule: id = nil
             }
             guard let id else { continue }
-            guard let target = request.draft.target(id: id) else { throw EditorError("AI 引用了当前配置中不存在的出口。") }
+            guard let target = draft.target(id: id) else { throw EditorError("修改引用了当前配置中不存在的出口。") }
             if !exitNames.contains(target.name) { exitNames.append(target.name) }
         }
         await progress(.finished(1, detail: exitNames.isEmpty ? "无需出口" : exitNames.joined(separator: "、")))
 
         await progress(.started(2))
-        var result = try PlanApplier.apply(plan, to: request.draft)
+        var result = try PlanApplier.apply(plan, to: draft)
         let newURLs = result.items.compactMap { $0.provider }.filter { !$0.reused }.map(\.url)
         if !newURLs.isEmpty {
             let checks = await verifier.verify(newURLs)
@@ -112,7 +121,7 @@ public struct EditorEngine: Sendable {
             if !missing.isEmpty {
                 throw EditorError("规则集地址不存在（404）：\(missing.joined(separator: "、"))。Veer 不会使用推测的地址。\(RuleSetCatalog.findHelp)")
             }
-            result = try PlanApplier.apply(plan, to: request.draft, verification: checks)
+            result = try PlanApplier.apply(plan, to: draft, verification: checks)
         }
         guard result.changed else {
             await progress(.finished(2, detail: "没有变化"))

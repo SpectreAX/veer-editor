@@ -30,7 +30,7 @@ struct ConversationView: View {
             } action: { _, atBottom in
                 followsBottom = atBottom
             }
-            .onChange(of: store.current?.turns) {
+            .onChange(of: store.conversationToken) {
                 if followsBottom { withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
             .onChange(of: store.selectedID) { proxy.scrollTo("bottom", anchor: .bottom) }

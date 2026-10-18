@@ -90,7 +90,7 @@ struct SystemPromptTests {
         guard case .clarification(let question, let options) = try await run("我想让 YouTube 走代理", reply: #"{"clarification":"\#(SystemPrompt.askForExit)"}"#) else {
             Issue.record("expected clarification"); return
         }
-        #expect(question == SystemPrompt.askForExit && options.contains("美国出口"))
+        #expect(question == SystemPrompt.askForExit && options.map(\.label).contains("美国出口") && options.allSatisfy { $0.prompt == nil })
         let plan = #"{"schemaVersion":1,"operations":[{"kind":"rule_set","source":"metacubex-geosite","name":"youtube","targetId":"target-1"}]}"#
         guard case .proposal(_, let items, let candidate, _) = try await run("YouTube 走出口2（美国）", reply: plan) else { Issue.record("expected proposal"); return }
         #expect(items.first?.subject == "YouTube" && items.first?.targetName == "美国出口")

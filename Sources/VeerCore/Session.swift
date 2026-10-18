@@ -126,7 +126,9 @@ public struct Turn: Codable, Identifiable, Sendable, Equatable {
         case running
         case proposal(Proposal)
         case noChange(String)
+        /// Legacy form (sessions saved before 2026-10-18).
         case clarification(String, suggestions: [String])
+        case clarify(String, options: [ClarifyOption])
         case outOfScope(String)
         case failure(message: String, opensSettings: Bool, canUseLocal: Bool)
         case cancelled

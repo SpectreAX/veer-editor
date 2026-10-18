@@ -25,6 +25,7 @@ struct ComposerView: View {
         if query.trigger == "/" {
             let commands = [
                 CompletionItem(id: "/test", title: "/test", detail: "测试域名命中哪条规则", insertion: "/test "),
+                CompletionItem(id: "/ruleset", title: "/ruleset", detail: "添加在线规则集", insertion: "/ruleset"),
                 CompletionItem(id: "/undo", title: "/undo", detail: "撤销上一次写入", insertion: "/undo"),
                 CompletionItem(id: "/redo", title: "/redo", detail: "重做写入", insertion: "/redo"),
                 CompletionItem(id: "/export", title: "/export", detail: "导出完整配置副本", insertion: "/export"),

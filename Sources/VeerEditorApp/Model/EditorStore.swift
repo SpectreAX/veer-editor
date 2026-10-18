@@ -40,6 +40,8 @@ final class EditorStore {
     var diffScope: DiffScope = .turn
     var toast: Toast?
     var showingImport = false
+    var showingRuleSetSheet = false
+    var showingOverview = false
     var importStage: ImportStage = .input
     var importInput = ""
     @ObservationIgnored private var importTask: Task<Void, Never>?
@@ -61,7 +63,13 @@ final class EditorStore {
     let keyStore: KeyStoring
     let engine: EditorEngine
     private var tasks: [UUID: Task<Void, Never>] = [:]
-    private var documentCache: [String: ConfigDocument] = [:]
+    // Derived-value caches. Not observed: they are filled while views render. Lookups compare
+    // strings with == (O(1) when the storage is shared) instead of hashing whole configs.
+    @ObservationIgnored private var documentCache: [(text: String, document: ConfigDocument)] = []
+    @ObservationIgnored private var regionCache: (id: UUID, draft: String, overrides: [String: Region], value: [String: Region])?
+    @ObservationIgnored private var addedCache: (original: String, draft: String, value: Set<String>)?
+    @ObservationIgnored private var diffCache: [(old: String, new: String, lines: [DiffLine])] = []
+    @ObservationIgnored private let saveQueue = DispatchQueue(label: "veer.session-save", qos: .utility)
     @ObservationIgnored private var saveWork: [UUID: DispatchWorkItem] = [:]
     @ObservationIgnored private var toastWork: DispatchWorkItem?
 
@@ -97,11 +105,24 @@ final class EditorStore {
     }
 
     func document(for text: String) -> ConfigDocument? {
-        if let cached = documentCache[text] { return cached }
+        if let index = documentCache.firstIndex(where: { $0.text == text }) {
+            let hit = documentCache.remove(at: index)
+            documentCache.insert(hit, at: 0)
+            return hit.document
+        }
         guard let parsed = try? ConfigDocument.parse(text) else { return nil }
-        if documentCache.count > 24 { documentCache.removeAll() }
-        documentCache[text] = parsed
+        documentCache.insert((text, parsed), at: 0)
+        if documentCache.count > 8 { documentCache.removeLast() }
         return parsed
+    }
+
+    /// Line diff, cached for the last few text pairs (the inspector re-renders often).
+    func diff(_ old: String, _ new: String) -> [DiffLine] {
+        if let hit = diffCache.first(where: { $0.old == old && $0.new == new }) { return hit.lines }
+        let lines = LineDiff.diff(old, new)
+        diffCache.insert((old, new, lines), at: 0)
+        if diffCache.count > 4 { diffCache.removeLast() }
+        return lines
     }
 
     var draft: ConfigDocument? { current.flatMap { document(for: $0.draftText) } }
@@ -109,7 +130,12 @@ final class EditorStore {
 
     var regions: [String: Region] {
         guard let current, let draft else { return [:] }
-        return current.regions(for: draft.targets)
+        if let cache = regionCache, cache.id == current.id, cache.draft == current.draftText, cache.overrides == current.regionOverrides {
+            return cache.value
+        }
+        let value = current.regions(for: draft.targets)
+        regionCache = (current.id, current.draftText, current.regionOverrides, value)
+        return value
     }
 
     var isRunning: Bool { current.map { tasks[$0.id] != nil } ?? false }
@@ -124,19 +150,17 @@ final class EditorStore {
         guard current.hasUnexportedChanges, let original = original, let draft else {
             return current.exportedText == nil ? "与原始配置一致" : "已导出 · 没有新的修改"
         }
-        let changed = changedRuleCount(from: original, to: draft)
-        return "草稿 · \(changed) 项未导出修改"
-    }
-
-    func changedRuleCount(from original: ConfigDocument, to draft: ConfigDocument) -> Int {
-        let before = Set(original.rules), after = Set(draft.rules)
-        return max(after.subtracting(before).count, before.subtracting(after).count)
+        let added = addedRules.count, removed = Set(original.rules).subtracting(draft.rules).count
+        return "草稿 · \(max(added, removed)) 项未导出修改"
     }
 
     /// Rules added in this session, for the "新增" marker.
     var addedRules: Set<String> {
-        guard let original, let draft else { return [] }
-        return Set(draft.rules).subtracting(original.rules)
+        guard let current, let original, let draft else { return [] }
+        if let cache = addedCache, cache.original == current.originalText, cache.draft == current.draftText { return cache.value }
+        let value = Set(draft.rules).subtracting(original.rules)
+        addedCache = (current.originalText, current.draftText, value)
+        return value
     }
 
     var latestProposalTurnID: UUID? {
@@ -307,15 +331,41 @@ final class EditorStore {
         session.updatedAt = .now
         current = session
 
-        let sessionID = session.id, turnID = turn.id
-        let started = Date()
         let engine = engine
+        startTurn(sessionID: session.id, turnID: turn.id, draftText: draft.text) { progress in
+            try await engine.run(request, progress: progress)
+        }
+    }
+
+    /// Adds an online rule set without parsing an instruction. It goes through the same URL
+    /// check, apply, validation and review card as a conversational edit.
+    func addRuleSet(_ reference: RuleSetReference, targetID: String) {
+        guard var session = current, let draft, !isRunning, let target = draft.target(id: targetID) else { return }
+        let label: String
+        switch reference {
+        case let .catalog(source, name): label = (try? RuleSetCatalog.spec(for: reference).sourceLabel) ?? "\(source)/\(name)"
+        case let .url(url, _): label = url
+        }
+        let steps = EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: .waiting) }
+        let turn = Turn(prompt: "添加规则集 \(label) → \(target.name)", mode: .local, steps: steps)
+        session.turns.append(turn)
+        session.updatedAt = .now
+        current = session
+        let engine = engine, plan = EditPlan(operations: [.ruleSet(reference, targetId: targetID)])
+        startTurn(sessionID: session.id, turnID: turn.id, draftText: draft.text) { progress in
+            try await engine.run(plan: plan, draft: draft, progress: progress)
+        }
+    }
+
+    private func startTurn(sessionID: UUID, turnID: UUID, draftText: String,
+                           work: @escaping @Sendable (@escaping @Sendable (EditorEngine.Progress) async -> Void) async throws -> EditorEngine.Output) {
+        let started = Date()
         tasks[sessionID] = Task { [weak self] in
             do {
-                let output = try await engine.run(request) { event in
+                let output = try await work { event in
                     await MainActor.run { self?.apply(event, sessionID: sessionID, turnID: turnID) }
                 }
-                self?.finish(sessionID: sessionID, turnID: turnID, started: started, draftText: draft.text, output: output)
+                self?.finish(sessionID: sessionID, turnID: turnID, started: started, draftText: draftText, output: output)
             } catch {
                 self?.fail(sessionID: sessionID, turnID: turnID, started: started, error: error)
             }
@@ -334,8 +384,9 @@ final class EditorStore {
         case "/redo": redo()
         case "/export": requestExport()
         case "/rules": inspectorPresented = true; inspectorTab = .rules
+        case "/ruleset": showingRuleSetSheet = true
         default:
-            showToast("未知命令 \(parts[0])。可用：/test、/undo、/redo、/export、/rules")
+            showToast("未知命令 \(parts[0])。可用：/test、/ruleset、/undo、/redo、/export、/rules")
         }
         return true
     }
@@ -356,7 +407,7 @@ final class EditorStore {
                     "\(item.subject) → \(item.targetID.flatMap(anon.label(forTargetID:)) ?? "删除")"
                 }.joined(separator: "；")
                 reply = "\(proposal.status == .written ? "已写入草稿" : "已提出修改")：\(summary)"
-            case .clarification(let question, _): reply = question
+            case .clarification(let question, _), .clarify(let question, _): reply = question
             case .outOfScope(let text), .noChange(let text): reply = text
             default: continue
             }
@@ -388,7 +439,7 @@ final class EditorStore {
                 turn.outcome = .proposal(.init(plan: plan, items: items, accepted: Set(items.map(\.id)), baseDraft: draftText,
                                                candidate: candidate, validation: validation, status: .pending))
             case .noChange(let text): turn.outcome = .noChange(text)
-            case let .clarification(question, suggestions): turn.outcome = .clarification(question, suggestions: suggestions)
+            case let .clarification(question, options): turn.outcome = .clarify(question, options: options)
             case .outOfScope(let text): turn.outcome = .outOfScope(text)
             }
         }
@@ -577,7 +628,7 @@ final class EditorStore {
 
     var exportStats: (added: Int, removed: Int, providers: Int) {
         guard let session = current else { return (0, 0, 0) }
-        let stats = LineDiff.stats(LineDiff.diff(session.originalText, session.draftText))
+        let stats = LineDiff.stats(diff(session.originalText, session.draftText))
         let providers = (draft?.providers.count ?? 0) - (original?.providers.count ?? 0)
         return (stats.added, stats.removed, max(0, providers))
     }
@@ -645,16 +696,31 @@ final class EditorStore {
 
     // MARK: Persistence & feedback
 
+    /// Debounced; JSON encoding and the file write happen on a serial background queue.
     private func scheduleSave(_ session: Session, immediately: Bool = false) {
         saveWork[session.id]?.cancel()
-        let store = store
-        let work = DispatchWorkItem { try? store.save(session) }
+        let store = store, queue = saveQueue
+        let work = DispatchWorkItem { queue.async { try? store.save(session) } }
         saveWork[session.id] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + (immediately ? 0 : 0.4), execute: work)
     }
 
     func flush() {
-        for session in sessions { try? store.save(session) }
+        for work in saveWork.values { work.cancel() }
+        let store = store, snapshot = sessions
+        saveQueue.sync { for session in snapshot { try? store.save(session) } }
+    }
+
+    /// Cheap value that changes when the conversation needs to scroll (new turn, step, outcome).
+    var conversationToken: String {
+        guard let turns = current?.turns, let last = turns.last else { return "" }
+        let outcome: String
+        switch last.outcome {
+        case .running: outcome = "running"
+        case .proposal(let proposal): outcome = "proposal-\(proposal.status.rawValue)"
+        default: outcome = "done"
+        }
+        return "\(turns.count)-\(last.id)-\(last.steps.map(\.state.rawValue).joined())-\(outcome)"
     }
 
     func showToast(_ message: String, undoable: Bool = false) {

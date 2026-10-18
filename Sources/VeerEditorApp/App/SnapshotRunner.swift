@@ -69,6 +69,16 @@ enum SnapshotRunner {
         store.write()
         await shot("08-written")
 
+        store.showingRuleSetSheet = true
+        await shot("22-ruleset-sheet")
+        store.showingRuleSetSheet = false
+        await settle(0.4)
+        store.showingOverview = true
+        await settle(0.8)
+        await shot("23-overview")
+        store.showingOverview = false
+        await settle(0.4)
+
         store.inspectorTab = .rules
         await shot("09-rules")
         store.inspectorTab = .test
@@ -148,6 +158,20 @@ enum SnapshotRunner {
         ].joined(separator: "\n")
         store.importText(Data(links.utf8).base64EncodedString())
         await shot("21-base64-import")
+        // The reported clarification loop: four JP nodes, no JP group.
+        let jpNodes = (1...4).map { "  - {name: \"[A]JP PrivateNET 0\($0)\", type: ss, server: jp\($0).example.invalid, port: 443, cipher: aes-128-gcm, password: p}" }
+        let usNodes = (1...2).map { "  - {name: \"[A]US PrivateNET 0\($0)\", type: ss, server: us\($0).example.invalid, port: 443, cipher: aes-128-gcm, password: p}" }
+        store.importText("proxies:\n" + (jpNodes + usNodes).joined(separator: "\n") + "\nrules:\n  - MATCH,DIRECT\n", title: "PrivateNET.yaml")
+        store.confirmExits()
+        store.send("Netflix 走日本，ChatGPT 走美国")
+        await waitIdle(store)
+        for _ in 0..<2 {
+            guard case .clarify(_, let options) = store.current?.turns.last?.outcome, let prompt = options.first?.prompt else { break }
+            store.send(prompt)
+            await waitIdle(store)
+        }
+        await shot("24-clarify-resolved")
+
         store.newImport()
         await shot("20-start-with-sessions")
         store.select(store.sessions[0].id)

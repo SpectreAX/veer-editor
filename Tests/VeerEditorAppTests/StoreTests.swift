@@ -91,7 +91,7 @@ struct StoreTests {
         store.send("YouTube 走代理")
         await waitIdle(store)
         #expect(store.current?.turns.map(\.outcome).contains(.outOfScope(LocalIntentParser.outOfScopeMessage)) == true)
-        if case .clarification(_, let options) = store.current?.turns.last?.outcome { #expect(!options.isEmpty) } else { Issue.record("expected clarification") }
+        if case .clarify(_, let options) = store.current?.turns.last?.outcome { #expect(!options.isEmpty) } else { Issue.record("expected clarification") }
         #expect(store.current?.draftText == SampleConfig.text)
     }
 
@@ -173,6 +173,48 @@ struct StoreTests {
         guard case .failed = store.importStage else { Issue.record("expected failure"); return }
         #expect(SubscriptionFetcher.looksLikeLink(" https://sub.example.invalid/api?token=1 \n"))
         #expect(!SubscriptionFetcher.looksLikeLink("https://a.example.invalid\nhttps://b.example.invalid"))
+    }
+
+    /// Views read these on every render; with a large subscription they must stay cheap.
+    @Test func derivedValuesAreCachedForLargeConfigs() throws {
+        let regions = ["日本", "美国", "香港", "新加坡", "台湾"]
+        var yaml = "proxies:\n"
+        for i in 0..<400 { yaml += "  - {name: \"\(regions[i % 5]) \(i)\", type: ss, server: n\(i).invalid, port: 443, cipher: aes-128-gcm, password: p}\n" }
+        yaml += "proxy-groups:\n"
+        for g in 0..<120 { yaml += "  - {name: G\(g), type: select, proxies: [\((0..<400).map { "\"\(regions[$0 % 5]) \($0)\"" }.joined(separator: ", "))]}\n" }
+        yaml += "rules:\n" + (0..<300).map { "  - DOMAIN-SUFFIX,d\($0).example,G\($0 % 120)\n" }.joined() + "  - MATCH,G0\n"
+        let store = makeStore()
+        store.importText(yaml, title: "large.yaml")
+        store.confirmExits()
+        _ = store.regions; _ = store.draft; _ = store.addedRules; _ = store.subtitle
+        let start = Date()
+        for _ in 0..<500 {
+            _ = store.regions; _ = store.draft; _ = store.original; _ = store.addedRules; _ = store.subtitle; _ = store.conversationToken
+        }
+        #expect(Date().timeIntervalSince(start) < 0.5)
+        #expect(store.regions.count == 520 && store.regions["日本 0"] == .jp)
+    }
+
+    @Test func onlineRuleSetsGoThroughReview() async throws {
+        let store = makeStore()
+        let jp = try #require(store.draft?.target(named: "日本出口")?.id)
+        store.addRuleSet(.catalog(source: "metacubex-geosite", name: "youtube"), targetID: jp)
+        await waitIdle(store)
+        let turn = try #require(store.current?.turns.last)
+        #expect(turn.prompt == "添加规则集 MetaCubeX geosite/youtube → 日本出口")
+        #expect(turn.steps.first?.detail == "手动添加")
+        #expect(turn.proposal?.items.first?.provider?.verification == .verified)
+        #expect(store.current?.draftText == SampleConfig.text)
+        store.write()
+        #expect(store.draft?.rules.first == "RULE-SET,youtube,日本出口")
+        #expect(store.draft?.providers.first?.key == "youtube")
+
+        store.addRuleSet(.url("https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list", behavior: "classical"),
+                         targetID: try #require(store.draft?.target(named: "REJECT")?.id))
+        await waitIdle(store)
+        #expect(store.current?.turns.last?.proposal?.items.first?.provider?.behavior == "classical")
+        store.send("/ruleset")
+        #expect(store.showingRuleSetSheet)
     }
 
     @Test func commandsRouteToTheInspector() {

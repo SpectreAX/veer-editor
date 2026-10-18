@@ -72,7 +72,8 @@ struct ExitList: View {
     let targets: [Target]
 
     var body: some View {
-        VStack(spacing: 0) {
+        let regions = store.regions
+        LazyVStack(spacing: 0) {
             ForEach(Array(targets.enumerated()), id: \.element.id) { index, target in
                 if index > 0 { Divider().padding(.leading, Spacing.lg) }
                 HStack(spacing: Spacing.md) {
@@ -84,7 +85,7 @@ struct ExitList: View {
                             .frame(width: 112, alignment: .trailing)
                     } else {
                         Picker("地区", selection: Binding(
-                            get: { store.regions[target.name] ?? .unknown },
+                            get: { regions[target.name] ?? .unknown },
                             set: { store.setRegion($0, for: target.name) }
                         )) {
                             ForEach(Region.allCases, id: \.self) { region in

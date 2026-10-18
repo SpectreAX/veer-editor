@@ -71,13 +71,31 @@ public enum Region: String, CaseIterable, Sendable, Codable {
         }
     }
 
-    /// Infers a region from an exit name; ambiguous or absent matches are `.unknown`.
+    /// Infers a region from an exit name; ambiguous or absent matches are `.unknown`. Memoized:
+    /// large subscriptions call this for hundreds of exits on every render.
     public static func infer(from name: String) -> Region {
+        if let cached = InferenceCache.shared.get(name) { return cached }
         let matches = Region.allCases.filter { region in
             guard let pattern = region.namePattern else { return false }
             return name.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
         }
-        return matches.count == 1 ? matches[0] : .unknown
+        let region = matches.count == 1 ? matches[0] : .unknown
+        InferenceCache.shared.set(name, region)
+        return region
+    }
+}
+
+final class InferenceCache: @unchecked Sendable {
+    static let shared = InferenceCache()
+    private var values: [String: Region] = [:]
+    private let lock = NSLock()
+
+    func get(_ name: String) -> Region? { lock.lock(); defer { lock.unlock() }; return values[name] }
+
+    func set(_ name: String, _ region: Region) {
+        lock.lock(); defer { lock.unlock() }
+        if values.count > 20_000 { values.removeAll() }
+        values[name] = region
     }
 }
 

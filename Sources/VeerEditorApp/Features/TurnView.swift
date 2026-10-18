@@ -53,17 +53,10 @@ struct AssistantTurn: View {
                 ProposalView(turn: turn, proposal: proposal)
             case .noChange(let text):
                 Text(text).foregroundStyle(.secondary)
+            case let .clarify(question, options):
+                ClarificationView(question: question, options: options, enabled: isLatest)
             case let .clarification(question, suggestions):
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text(question).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    if !suggestions.isEmpty {
-                        FlowLayout(spacing: Spacing.sm) {
-                            ForEach(suggestions, id: \.self) { option in
-                                Chip(text: option) { store.send(followUp(for: option)) }
-                            }
-                        }
-                    }
-                }
+                ClarificationView(question: question, options: suggestions.map { ClarifyOption(label: $0) }, enabled: isLatest)
             case .outOfScope(let text):
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     StatusBadge(kind: .info, text: "超出编辑范围", compact: true)
@@ -82,11 +75,31 @@ struct AssistantTurn: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// Answering a clarification restates the original request with the chosen exit.
-    private func followUp(for option: String) -> String {
-        let base = turn.prompt.replacingOccurrences(of: #"走\s*代理|走\s*proxy"#, with: "", options: [.regularExpression, .caseInsensitive])
-            .trimmingCharacters(in: .whitespaces)
-        return "\(base) 走 @\(option)"
+    /// Only the latest question can be answered; older ones stay readable.
+    private var isLatest: Bool { store.current?.turns.last(where: { !$0.isNote })?.id == turn.id }
+}
+
+struct ClarificationView: View {
+    @Environment(EditorStore.self) private var store
+    let question: String
+    let options: [ClarifyOption]
+    let enabled: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text(question).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            if !options.isEmpty {
+                FlowLayout(spacing: Spacing.sm) {
+                    ForEach(options, id: \.self) { option in
+                        // A resolved prompt replaces only the ambiguous phrase; otherwise send a short
+                        // follow-up that the AI resolves against the conversation.
+                        Chip(text: option.label) { store.send(option.prompt ?? "走 @\(option.label)") }
+                            .disabled(!enabled || store.isRunning)
+                            .help(option.prompt ?? "走 @\(option.label)")
+                    }
+                }
+            }
+        }
     }
 }
 

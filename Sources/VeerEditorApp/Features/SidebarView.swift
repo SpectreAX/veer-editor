@@ -64,6 +64,7 @@ struct SidebarView: View {
         }
         .padding(.vertical, Spacing.xxs)
         .contextMenu {
+            Button("查看解析结果") { store.select(session.id); store.showingOverview = true }
             Button("重命名") { renameText = session.title; renaming = session.id }
             Button("删除…", role: .destructive) { store.pendingDeletion = session }
         }

@@ -51,7 +51,7 @@ struct PlanTests {
     @Test func decodesPlanAndClarification() throws {
         let reply = try EditPlan.decodeReply(#"```json\#n{"schemaVersion":1,"operations":[{"kind":"rule_set","source":"metacubex-geosite","name":"netflix","targetId":"target-0"}]}\#n```"#)
         #expect(reply == .plan(EditPlan(operations: [.ruleSet(.catalog(source: "metacubex-geosite", name: "netflix"), targetId: "target-0")])))
-        #expect(try EditPlan.decodeReply(#"{"clarification":"走哪个出口？"}"#) == .clarification("走哪个出口？", suggestions: []))
+        #expect(try EditPlan.decodeReply(#"{"clarification":"走哪个出口？"}"#) == .clarification("走哪个出口？", options: []))
     }
 
     @Test(arguments: [
@@ -216,12 +216,57 @@ struct LocalParserTests {
 
     @Test func asksOrExplainsInsteadOfGuessing() throws {
         guard case .clarification(_, let options) = try parse("YouTube 走代理") else { Issue.record("expected clarification"); return }
-        #expect(options == ["日本出口", "美国出口", "香港出口", "自动选择"])
+        #expect(options.map(\.label) == ["日本出口", "美国出口", "香港出口", "自动选择"])
+        #expect(options[0].prompt == "YouTube 走 @日本出口")
         #expect(try parse("节点太卡了换一个") == .outOfScope(LocalIntentParser.outOfScopeMessage))
         guard case .clarification = try parse("Netflix 走德国") else { Issue.record("expected clarification"); return }
         #expect(throws: EditorError.self) { try parse("Netflix 不要走日本") }
         #expect(throws: EditorError.self) { try parse("Netflix 走日本和美国") }
         #expect(throws: EditorError.self) { try parse("帮我优化一下") }
+    }
+}
+
+struct ClarificationLoopTests {
+    /// The reported loop: four JP nodes and no JP group made every answer ask again.
+    @Test func answeringResolvesInsteadOfRepeating() throws {
+        let yaml = """
+        proxies:
+          - {name: "[A]JP PrivateNET 01", type: ss, server: a.invalid, port: 1, cipher: aes-128-gcm, password: p}
+          - {name: "[A]JP PrivateNET 02", type: ss, server: b.invalid, port: 1, cipher: aes-128-gcm, password: p}
+          - {name: "[A]US PrivateNET 01", type: ss, server: c.invalid, port: 1, cipher: aes-128-gcm, password: p}
+          - {name: "[A]US PrivateNET 02", type: ss, server: d.invalid, port: 1, cipher: aes-128-gcm, password: p}
+        rules:
+          - MATCH,DIRECT
+        """
+        let doc = try ConfigDocument.parse(yaml)
+        let regions = Session(title: "", source: .pasted, text: yaml).regions(for: doc.targets)
+        var prompt = "Netflix 走日本，ChatGPT 走美国"
+        var asked = 0
+        while true {
+            switch try LocalIntentParser.parse(prompt, targets: doc.targets, regions: regions) {
+            case .clarification(_, let options):
+                asked += 1
+                #expect(asked <= 2, "asked again: \(prompt)")
+                if asked > 2 { return }
+                prompt = try #require(options.first?.prompt)
+            case .plan(let plan):
+                #expect(prompt == "Netflix 走@[A]JP PrivateNET 01，ChatGPT 走@[A]US PrivateNET 01")
+                #expect(plan.operations.count == 2)
+                #expect(try ConfigDocument.parse(PlanApplier.apply(plan, to: doc).candidate).rules.prefix(2)
+                        == ["RULE-SET,netflix,[A]JP PrivateNET 01", "RULE-SET,openai,[A]US PrivateNET 01"])
+                return
+            case .outOfScope:
+                Issue.record("unexpected out-of-scope"); return
+            }
+        }
+    }
+
+    @Test func regionLettersInsideExitNamesAreNotRegionRequests() throws {
+        let yaml = "proxies:\n  - {name: 'US-JP Relay', type: ss, server: a.invalid, port: 1, cipher: aes-128-gcm, password: p}\nrules:\n  - MATCH,DIRECT\n"
+        let doc = try ConfigDocument.parse(yaml)
+        guard case .plan = try LocalIntentParser.parse("YouTube 走 @US-JP Relay", targets: doc.targets, regions: [:]) else {
+            Issue.record("expected plan"); return
+        }
     }
 }
 

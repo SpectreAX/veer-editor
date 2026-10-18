@@ -31,6 +31,7 @@ public enum LocalIntentParser {
 
         let exits = targets.filter { $0.kind != .builtin }
         let suggestions = Array(exits.filter { $0.kind == .group }.prefix(4).map(\.name))
+        let exitNames = exits.map(\.name)
         var operations: [EditPlan.Operation] = []
         for clause in clauses(trimmed, exitNames: exits.map(\.name)) {
             if clause.matches(#"不要|不走|别走|别用|不使用|除了|除外|except|unless|\bnot\b|don't"#) {
@@ -54,8 +55,12 @@ public enum LocalIntentParser {
             let target: Target
             switch try resolveExit(clause, targets: targets, regions: regions, defaultReject: geosites == ["category-ads-all"]) {
             case .target(let found): target = found
-            case .ask(let question, let options):
-                return .clarification(question, suggestions: options.isEmpty ? suggestions : options)
+            case .ask(let question, let names):
+                // Each choice rewrites only this clause's exit phrase, so answering never repeats the question.
+                let choices = names.isEmpty ? suggestions : names
+                return .clarification(question, options: choices.map {
+                    ClarifyOption(label: $0, prompt: resolved(trimmed, clause: clause, exit: $0, exitNames: exitNames))
+                })
             }
             for domain in domains { operations.append(.route(matchType: "DOMAIN-SUFFIX", match: domain, targetId: target.id)) }
             for geosite in geosites {
@@ -74,8 +79,11 @@ public enum LocalIntentParser {
         let direct = clause.matches(#"直连|\bdirect\b|不走代理|不代理"#)
         let reject = clause.matches(#"屏蔽|拦截|拒绝|阻止|\breject\b|\bblock\b"#)
         let named = exits.filter { clause.contains($0.name) }
+        // Look for region words outside exit names, so "[A]JP PrivateNET" or "US-01" don't count as a region request.
+        var regionScan = clause
+        for name in exits.map(\.name).sorted(by: { $0.count > $1.count }) { regionScan = regionScan.replacingOccurrences(of: name, with: " ") }
         let longestNamed = named.filter { candidate in !named.contains { $0.name != candidate.name && $0.name.contains(candidate.name) } }
-        let asked = Region.allCases.filter { $0.instructionPattern.map(clause.matches) ?? false }
+        let asked = Region.allCases.filter { $0.instructionPattern.map(regionScan.matches) ?? false }
 
         let actions = (direct ? 1 : 0) + (reject ? 1 : 0) + (longestNamed.isEmpty && asked.isEmpty ? 0 : 1)
         if actions > 1 || longestNamed.count > 1 || asked.count > 1 {
@@ -95,6 +103,21 @@ public enum LocalIntentParser {
             return .ask("当前配置里没有标记为\(region.displayName)的出口。请选择一个出口，或在检查器的“出口”里更正地区。", [])
         }
         return .ask("有 \(pool.count) 个\(region.displayName)出口，请选择一个：", Array(pool.prefix(6).map(\.name)))
+    }
+
+    /// `prompt` with this clause's region word (or "走代理") replaced by `@exit`.
+    static func resolved(_ prompt: String, clause: String, exit: String, exitNames: [String]) -> String {
+        var fixed = clause
+        let patterns = Region.allCases.compactMap(\.instructionPattern) + [#"走\s*代理|走\s*proxy"#]
+        let ranges = patterns.compactMap { clause.range(of: $0, options: [.regularExpression, .caseInsensitive]) }
+        if let first = ranges.min(by: { $0.lowerBound < $1.lowerBound }) {
+            let replaced = String(clause[first])
+            fixed.replaceSubrange(first, with: replaced.hasPrefix("走") ? "走 @\(exit)" : "@\(exit)")
+        } else {
+            fixed = clause + " 走 @\(exit)"
+        }
+        guard let range = prompt.range(of: clause) else { return fixed }
+        return prompt.replacingCharacters(in: range, with: fixed)
     }
 
     /// Splits on separators, but never inside an exit name.

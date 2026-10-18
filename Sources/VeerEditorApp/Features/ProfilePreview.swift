@@ -2,6 +2,62 @@ import Charts
 import SwiftUI
 import VeerCore
 
+/// Scrollable parse summary shared by the import preview and the session overview.
+struct ProfileSummaryView: View {
+    let title: String
+    let subtitle: String
+    let timestamp: String
+    let usage: SubscriptionUsage?
+    let note: String?
+    let analysis: ProfileAnalysis?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Text(title).font(.title2.weight(.semibold)).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: Spacing.xs) {
+                        Text(timestamp).font(.caption).foregroundStyle(.secondary)
+                        if let usage { UsageText(usage: usage).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                if let note {
+                    StatusBadge(kind: .info, text: note, compact: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Spacing.md)
+                        .background(Color.statusInfo.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+                }
+                if let analysis, !analysis.isEmpty {
+                    StatTiles(analysis: analysis)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: Spacing.md) {
+                            ProtocolCard(analysis: analysis).frame(maxWidth: .infinity)
+                            RuleTargetCard(analysis: analysis).frame(maxWidth: .infinity)
+                        }
+                        .frame(minWidth: 680)
+                        VStack(spacing: Spacing.md) {
+                            ProtocolCard(analysis: analysis)
+                            RuleTargetCard(analysis: analysis)
+                        }
+                    }
+                    CompositionCard(analysis: analysis)
+                    GroupPreviewCard(analysis: analysis)
+                } else if analysis == nil {
+                    ProgressView("正在解析…").frame(maxWidth: .infinity).padding(Spacing.xxl)
+                } else {
+                    StateView(symbol: "doc.text", title: "配置是空的", message: "没有节点、策略组或规则。")
+                }
+            }
+            .padding(Spacing.xl)
+        }
+    }
+}
+
 /// Parsed-profile panel shown before an import is added.
 struct ProfilePreviewView: View {
     @Environment(EditorStore.self) private var store
@@ -9,72 +65,72 @@ struct ProfilePreviewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.lg) {
-                    header
-                    if let note = pending.result.note {
-                        StatusBadge(kind: .info, text: note, compact: true)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(Spacing.md)
-                            .background(Color.statusInfo.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
-                    }
-                    if let analysis = pending.analysis, !analysis.isEmpty {
-                        StatTiles(analysis: analysis)
-                        ViewThatFits(in: .horizontal) {
-                            HStack(alignment: .top, spacing: Spacing.md) {
-                                ProtocolCard(analysis: analysis).frame(maxWidth: .infinity)
-                                RuleTargetCard(analysis: analysis).frame(maxWidth: .infinity)
-                            }
-                            .frame(minWidth: 680)
-                            VStack(spacing: Spacing.md) {
-                                ProtocolCard(analysis: analysis)
-                                RuleTargetCard(analysis: analysis)
-                            }
-                        }
-                        CompositionCard(analysis: analysis)
-                        GroupPreviewCard(analysis: analysis)
-                    } else {
-                        StateView(symbol: "doc.text", title: "配置是空的", message: "没有节点、策略组或规则。仍然可以导入后用对话添加。")
-                    }
-                }
-                .padding(Spacing.xl)
-            }
+            ProfileSummaryView(title: pending.title, subtitle: "\(pending.source.label) · \(pending.result.format.label)",
+                               timestamp: "解析于 \(pending.parsedAt.formatted(date: .numeric, time: .standard))",
+                               usage: pending.usage, note: pending.result.note, analysis: pending.analysis)
             Divider()
-            footer
+            HStack(spacing: Spacing.md) {
+                Label("文件解析完成", systemImage: "checkmark.circle").foregroundStyle(.secondary).font(.callout)
+                Spacer()
+                if pending.link != nil {
+                    Button("刷新") { store.refreshPendingImport() }.help("重新下载订阅并解析")
+                }
+                Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction)
+                Button("导入并开始编辑") { store.confirmPendingImport() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            }
+            .controlSize(.large)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
         }
         .frame(width: 820, height: 760)
     }
+}
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text(pending.title).font(.title2.weight(.semibold)).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                Text("\(pending.source.label) · \(pending.result.format.label)").font(.callout).foregroundStyle(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: Spacing.xs) {
-                Text("解析于 \(pending.parsedAt.formatted(date: .numeric, time: .standard))").font(.caption).foregroundStyle(.secondary)
-                if let usage = pending.usage { UsageText(usage: usage).font(.caption).foregroundStyle(.secondary) }
-            }
-        }
-    }
+/// The same parse summary for a session that was already imported: current draft or original.
+struct SessionOverviewSheet: View {
+    @Environment(EditorStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var showOriginal = false
+    @State private var analysis: ProfileAnalysis?
+    @State private var analyzedText: String?
 
-    private var footer: some View {
-        HStack(spacing: Spacing.md) {
-            Label("文件解析完成", systemImage: "checkmark.circle").foregroundStyle(.secondary).font(.callout)
-            Spacer()
-            if pending.link != nil {
-                Button("刷新") { store.refreshPendingImport() }.help("重新下载订阅并解析")
+    var body: some View {
+        VStack(spacing: 0) {
+            if let session = store.current {
+                let text = showOriginal ? session.originalText : session.draftText
+                ProfileSummaryView(title: session.title, subtitle: session.source.label,
+                                   timestamp: "导入于 \(session.createdAt.formatted(date: .numeric, time: .shortened))",
+                                   usage: session.subscriptionUsage, note: showOriginal ? session.importNote : nil,
+                                   analysis: analyzedText == text ? analysis : nil)
+                    .task(id: text.hashValue ^ (showOriginal ? 1 : 0)) {
+                        let snapshot = text
+                        let result = await Task.detached(priority: .userInitiated) { ProfileAnalysis.analyze(snapshot) }.value
+                        analysis = result
+                        analyzedText = snapshot
+                    }
             }
-            Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction)
-            Button("导入并开始编辑") { store.confirmPendingImport() }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+            Divider()
+            HStack(spacing: Spacing.md) {
+                Picker("范围", selection: $showOriginal) {
+                    Text("当前草稿").tag(false)
+                    Text("导入时").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                if store.current?.hasUnexportedChanges == true && !showOriginal {
+                    Text("包含未导出的修改").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("关闭") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .controlSize(.large)
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.md)
         }
-        .controlSize(.large)
-        .padding(.horizontal, Spacing.xl)
-        .padding(.vertical, Spacing.md)
+        .frame(width: 820, height: 760)
     }
 }
 

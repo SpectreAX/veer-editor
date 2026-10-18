@@ -16,6 +16,8 @@ struct RootView: View {
         .navigationTitle(store.showingStart || store.current == nil ? "Veer AI Editor" : store.current!.title)
         .navigationSubtitle(store.showingStart ? "" : store.subtitle)
         .sheet(isPresented: $store.showingImport, onDismiss: { store.cancelImport() }) { ImportSheet() }
+        .sheet(isPresented: $store.showingRuleSetSheet) { AddRuleSetSheet() }
+        .sheet(isPresented: $store.showingOverview) { SessionOverviewSheet() }
         .sheet(isPresented: $store.showingExportSheet) { ExportSheet() }
         .sheet(item: Binding(get: { store.payloadTurn }, set: { _ in store.payloadTurnID = nil })) { turn in
             PayloadSheet(turn: turn)
@@ -72,6 +74,8 @@ struct DetailView: View {
                     .help("撤销上一次写入（⌘Z）").disabled(!store.canUndo)
                 Button { store.redo() } label: { Label("重做写入", systemImage: "arrow.uturn.forward") }
                     .help("重做（⇧⌘Z）").disabled(!store.canRedo)
+                Button { store.showingOverview = true } label: { Label("配置概览", systemImage: "chart.pie") }
+                    .help("查看配置解析结果（⇧⌘I）")
                 Button { store.requestExport() } label: { Label("导出", systemImage: "square.and.arrow.up") }
                     .help("导出完整配置副本（⌘E）")
                 Button { store.inspectorPresented.toggle() } label: { Label("检查器", systemImage: "sidebar.right") }

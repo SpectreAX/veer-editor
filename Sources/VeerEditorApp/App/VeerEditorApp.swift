@@ -85,6 +85,13 @@ struct EditorCommands: Commands {
             Button("重做写入") { store.redo() }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!store.canRedo)
         }
         CommandMenu("编辑草稿") {
+            Button("添加在线规则集…") { store.showingRuleSetSheet = true }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .disabled(store.current?.exitsConfirmed != true || store.isRunning)
+            Button("配置概览…") { store.showingOverview = true }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(store.current == nil)
+            Divider()
             Button("写入草稿") { store.write() }.keyboardShortcut(.return, modifiers: [.command, .shift])
             Button("停止生成") { store.cancel() }.keyboardShortcut(".").disabled(!store.isRunning)
         }

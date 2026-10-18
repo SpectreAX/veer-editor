@@ -47,7 +47,7 @@ struct ChangesTab: View {
             .padding(.vertical, Spacing.sm)
 
             if let texts = store.diffTexts {
-                let lines = LineDiff.diff(texts.old, texts.new)
+                let lines = store.diff(texts.old, texts.new)
                 let stats = LineDiff.stats(lines)
                 if stats.added + stats.removed == 0 {
                     StateView(symbol: "checkmark.circle", title: "没有差异", message: store.diffScope == .original ? "草稿与原始配置一致。" : "这一轮没有改变草稿。")
@@ -174,6 +174,10 @@ struct RulesTab: View {
             HStack {
                 Text("\(rules.count) 条规则 · 本次新增 \(added.count) 条").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button { store.showingRuleSetSheet = true } label: { Label("添加规则集", systemImage: "plus") }
+                    .buttonStyle(.borderless).font(.caption)
+                    .disabled(store.isRunning)
+                    .help("添加在线规则集（/ruleset）")
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.bottom, Spacing.xs)

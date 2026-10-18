@@ -20,10 +20,21 @@ public enum RuleSetReference: Codable, Sendable, Hashable {
     case url(String, behavior: String?)
 }
 
+/// One answer offered with a clarification. `prompt` is the complete instruction to send when
+/// chosen; nil means "send a short follow-up naming this exit" (the AI resolves it from history).
+public struct ClarifyOption: Codable, Sendable, Hashable {
+    public let label: String
+    public let prompt: String?
+    public init(label: String, prompt: String? = nil) {
+        self.label = label
+        self.prompt = prompt
+    }
+}
+
 /// What the assistant answered for one instruction.
 public enum AssistantReply: Sendable, Equatable {
     case plan(EditPlan)
-    case clarification(String, suggestions: [String])
+    case clarification(String, options: [ClarifyOption])
     case outOfScope(String)
 }
 
@@ -46,7 +57,7 @@ extension EditPlan {
                   !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw EditorError("AI 同时返回了问题和修改，已拒绝。请重新生成。")
             }
-            return .clarification(String(question.prefix(500)), suggestions: [])
+            return .clarification(String(question.prefix(500)), options: [])
         }
         guard Set(root.keys).isSubset(of: ["schemaVersion", "operations"]),
               (root["schemaVersion"] as? NSNumber)?.intValue == 1,
