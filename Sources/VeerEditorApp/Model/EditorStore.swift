@@ -54,7 +54,9 @@ final class EditorStore {
     var showingExportSheet = false
     var showingSettings = false
     var showingModelPopover = false
-    var payloadTurnID: UUID?
+    var payloadTurnID: UUID? { didSet { if payloadTurnID == nil { payloadComparing = false } } }
+    /// The payload sheet shows the side-by-side comparison instead of the sent text.
+    var payloadComparing = false
     var pendingDeletion: Session?
     var composerText = ""
     var composerFocusToken = 0

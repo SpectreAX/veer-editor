@@ -114,6 +114,9 @@ enum SnapshotRunner {
 
         store.payloadTurnID = store.current?.turns.first { $0.sentPayload != nil }?.id
         await shot("16-payload")
+        store.payloadComparing = true
+        await settle(1.0)
+        await shot("16b-payload-compare")
         store.payloadTurnID = nil
         await settle(0.4)
 

@@ -64,10 +64,13 @@ public struct EditorEngine: Sendable {
     /// The anonymized payload a request would send; shown to the user per turn.
     public static func payload(for request: Request) -> AIRequestPayload {
         let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
-        return AIRequestPayload(model: request.settings.modelLabel, exits: anonymized.context.exits.map(\.label),
-                                history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
-                                instruction: anonymized.context.anonymize(request.prompt),
-                                system: AIClient.systemPrompt(config: anonymized.yaml), config: anonymized.yaml)
+        var payload = AIRequestPayload(model: request.settings.modelLabel, exits: anonymized.context.exits.map(\.label),
+                                       history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
+                                       instruction: anonymized.context.anonymize(request.prompt),
+                                       system: AIClient.systemPrompt(config: anonymized.yaml), config: anonymized.yaml)
+        payload.sourceDigest = AIRequestPayload.digest(request.draft.text)
+        payload.shareRuleLiterals = request.shareRuleLiterals
+        return payload
     }
 
     public func run(_ request: Request, progress: @Sendable (Progress) async -> Void) async throws -> Output {

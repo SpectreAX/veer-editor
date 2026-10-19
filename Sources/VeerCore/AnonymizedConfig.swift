@@ -13,6 +13,8 @@ import Yams
 public struct AnonymizedConfig: Sendable {
     public let yaml: String
     public let context: AnonymousContext
+    /// What each part of the original became, for the side-by-side view. Kept on this Mac only.
+    public let comparison: PayloadComparison
 
     /// Groups with more members than this are summarized as counts by region.
     public static let memberListLimit = 24
@@ -33,12 +35,18 @@ public struct AnonymizedConfig: Sendable {
         }
 
         var root: [(String, Node)] = []
+        var sections: [PayloadComparison.Section] = []
+        func section(_ title: String, _ pairs: [(String, String)], note: String? = nil) {
+            guard !pairs.isEmpty else { return }
+            sections.append(.init(title: title, rows: pairs.enumerated().map { .init(id: "\(title)#\($0.offset)", original: $0.element.0, sent: $0.element.1) }, note: note))
+        }
         if let mode = document.mode { root.append(("mode", scalar(mode))) }
         root.append(("内置出口", .sequence(.init(document.targets.filter { $0.kind == .builtin }.map { target in
             flowMap([("id", scalar(target.id)), ("name", scalar(target.name))])
         }, Tag(.seq), .block))))
 
         let nodes = document.targets.filter { $0.kind == .node }
+        section("节点", nodes.map { ($0.name, label($0.name)) }, note: "服务器、端口、密码、UUID、协议与传输参数都不发送")
         if !nodes.isEmpty {
             root.append(("proxies", .sequence(.init(nodes.map { target in
                 flowMap([("id", scalar(target.id)), ("name", scalar(label(target.name)))])
@@ -46,6 +54,11 @@ public struct AnonymizedConfig: Sendable {
         }
 
         let groups = analysis?.groups ?? []
+        section("策略组", groups.map { group in
+            let type = mihomoType(group.type)
+            return ("\(group.name) · \(type)", "\(label(group.name)) · \(type)")
+        }, note: "健康检查地址不发送")
+        section("代理集", (analysis?.providers ?? []).enumerated().map { ($0.element.name, "代理集\($0.offset + 1)") }, note: "订阅地址与路径不发送")
         if !groups.isEmpty {
             let groupIDs = Dictionary(document.targets.filter { $0.kind == .group }.map { ($0.name, $0.id) }, uniquingKeysWith: { a, _ in a })
             var providerLabels: [String: String] = [:]
@@ -92,6 +105,7 @@ public struct AnonymizedConfig: Sendable {
                 providerNames[provider.key] = "规则集\(anonymousProviders)"
             }
         }
+        section("规则集", document.providers.map { ($0.key, providerNames[$0.key]!) }, note: "地址与路径不发送；公共规则集保留名称")
         if !document.providers.isEmpty {
             let behaviors = providerBehaviors(document.text)
             root.append(("rule-providers", .mapping(.init(document.providers.map { provider in
@@ -100,11 +114,13 @@ public struct AnonymizedConfig: Sendable {
         }
 
         var literals: [String: String] = [:]
+        var literalRows: [(String, String)] = []
         func placeholder(_ value: String, kind: String) -> String {
             if shareRuleLiterals { return value }
             if let existing = literals[value.lowercased()] { return existing }
             let token = "<\(kind)\(literals.count + 1)>"
             literals[value.lowercased()] = token
+            literalRows.append((value, token))
             return token
         }
         var rules: [String] = []
@@ -112,6 +128,11 @@ public struct AnonymizedConfig: Sendable {
             rules.append(anonymize(rule: rule, label: label, providerNames: providerNames, placeholder: placeholder))
         }
         if document.rules.count > ruleLimit { rules.append("# 另有 \(document.rules.count - ruleLimit) 条规则未列出") }
+        section("规则", Array(zip(document.rules.prefix(ruleLimit), rules)),
+                note: document.rules.count > ruleLimit ? "只发送前 \(ruleLimit) 条，另有 \(document.rules.count - ruleLimit) 条未发送" : nil)
+        section("规则中的具体值", literalRows, note: "同一个值始终替换为同一个占位符")
+        let sent: Set<String> = ["mode", "proxies", "proxy-groups", "rules", "rule-providers", "proxy-providers"]
+        section("未发送的配置", document.topLevelKeys.map(\.key).filter { !sent.contains($0) }.map { ($0, "未发送") })
         if !rules.isEmpty { root.append(("rules", .sequence(.init(rules.map { scalar($0) }, Tag(.seq), .block)))) }
 
         let header = """
@@ -121,7 +142,8 @@ public struct AnonymizedConfig: Sendable {
         """
         let body = (try? Yams.serialize(node: .mapping(.init(root.map { (scalar($0.0), $0.1) }, Tag(.map), .block)),
                                         indent: 2, width: -1, allowUnicode: true)) ?? ""
-        return AnonymizedConfig(yaml: header + ConfigImporter.readableUnicode(body), context: context)
+        return AnonymizedConfig(yaml: header + ConfigImporter.readableUnicode(body), context: context,
+                                comparison: PayloadComparison(sections: sections))
     }
 
     static func anonymize(rule: String, label: (String) -> String, providerNames: [String: String],
@@ -163,4 +185,42 @@ public struct AnonymizedConfig: Sendable {
 
     static func flowMap(_ pairs: [(String, Node)]) -> Node { .mapping(.init(pairs.map { (scalar($0.0), $0.1) }, Tag(.map), .flow)) }
     static func flowSeq(_ items: [String]) -> Node { .sequence(.init(items.map { scalar($0) }, Tag(.seq), .flow)) }
+}
+
+/// Original configuration next to what the AI received, item by item.
+public struct PayloadComparison: Sendable, Equatable {
+    public struct Row: Sendable, Equatable, Identifiable {
+        /// Unique across sections ("规则#3"), so one list can hold every section.
+        public let id: String
+        public let original: String
+        public let sent: String
+        public init(id: String, original: String, sent: String) {
+            self.id = id
+            self.original = original
+            self.sent = sent
+        }
+    }
+
+    public struct Section: Sendable, Equatable, Identifiable {
+        public var id: String { title }
+        public let title: String
+        public let rows: [Row]
+        public let note: String?
+        public init(title: String, rows: [Row], note: String?) {
+            self.title = title
+            self.rows = rows
+            self.note = note
+        }
+    }
+
+    public let sections: [Section]
+
+    /// The comparison for a turn: rebuilt from the draft the payload came from. `exact` is false
+    /// when the rebuilt YAML differs from what was sent (for example after a region correction).
+    public static func rebuild(for payload: AIRequestPayload, source: String, regions: (ConfigDocument) -> [String: Region]) -> (comparison: PayloadComparison, exact: Bool)? {
+        guard let document = try? ConfigDocument.parse(source) else { return nil }
+        let shared = payload.shareRuleLiterals ?? !(payload.config ?? "").contains("已替换为 <域名N>")
+        let rebuilt = AnonymizedConfig.make(document: document, regions: regions(document), shareRuleLiterals: shared)
+        return (rebuilt.comparison, payload.config == nil || rebuilt.yaml == payload.config)
+    }
 }

@@ -37,6 +37,53 @@ struct AnonymizedConfigTests {
         return AnonymizedConfig.make(document: doc, regions: regions, shareRuleLiterals: literals)
     }
 
+    @Test func comparisonPairsEachOriginalWithWhatWasSent() throws {
+        let sections = try make().comparison.sections
+        func rows(_ title: String) -> [String] {
+            sections.first { $0.title == title }?.rows.map { "\($0.original) → \($0.sent)" } ?? []
+        }
+        #expect(sections.map(\.title) == ["节点", "策略组", "代理集", "规则集", "规则", "规则中的具体值", "未发送的配置"])
+        #expect(rows("节点") == ["🇯🇵 东京 IEPL 01 → 节点1（日本）", "🇺🇸 洛杉矶 02 → 节点2（美国）"])
+        #expect(rows("策略组") == ["🚀 我的机场 · select → 策略组1 · select", "日本自动 · url-test → 策略组2（日本） · url-test"])
+        #expect(rows("代理集") == ["airport → 代理集1"])
+        #expect(rows("规则集") == ["netflix → netflix", "my-company → 规则集1"])
+        #expect(rows("规则").first == "RULE-SET,netflix,日本自动 → RULE-SET,netflix,策略组2（日本）")
+        #expect(rows("规则").count == 7)
+        #expect(rows("规则中的具体值") == ["intranet.corp.invalid → <域名1>", "10.20.0.0/16 → <IP2>"])
+        #expect(rows("未发送的配置") == ["mixed-port → 未发送", "dns → 未发送", "external-controller → 未发送", "secret → 未发送"])
+        // Row ids are unique across sections so one lazy list can show them all.
+        let ids = sections.flatMap { $0.rows.map(\.id) }
+        #expect(Set(ids).count == ids.count)
+        let shared = try make(literals: true).comparison.sections
+        #expect(!shared.contains { $0.title == "规则中的具体值" })
+    }
+
+    @Test func findsTheDraftARequestWasMadeFrom() throws {
+        // Imported one version, wrote another (the one sent), then wrote again.
+        var session = Session(title: "a.yaml", source: .pasted, text: source.replacingOccurrences(of: "GEOSITE,cn,DIRECT", with: "GEOSITE,google,DIRECT"))
+        let doc = try ConfigDocument.parse(source)
+        let regions = session.regions(for: doc.targets)
+        let request = EditorEngine.Request(prompt: "Netflix 走日本", draft: doc, regions: regions, useAI: true, settings: AISettings(), apiKey: "k")
+        let payload = EditorEngine.payload(for: request)
+        #expect(payload.sourceDigest == AIRequestPayload.digest(source) && payload.shareRuleLiterals == false)
+        // The draft has since changed by a write: the old text is on the undo stack.
+        session.undoStack.append(source)
+        session.draftText = source + "\n  - DOMAIN,extra.invalid,DIRECT\n"
+        let lookup: (ConfigDocument) -> [String: Region] = { session.regions(for: $0.targets) }
+        #expect(session.sourceDraft(for: payload, regions: lookup) == source)
+        let rebuilt = try #require(PayloadComparison.rebuild(for: payload, source: source, regions: lookup))
+        let expected = try make().comparison
+        #expect(rebuilt.exact && rebuilt.comparison == expected)
+        // Payloads saved before digests existed are matched by their YAML.
+        var legacy = payload
+        legacy.sourceDigest = nil
+        legacy.shareRuleLiterals = nil
+        #expect(session.sourceDraft(for: legacy, regions: lookup) == source)
+        // A draft that no longer exists anywhere in the session is reported as missing.
+        session.undoStack = []
+        #expect(session.sourceDraft(for: payload, regions: lookup) == nil)
+    }
+
     @Test func removesEverythingIdentifying() throws {
         let yaml = try make().yaml
         for secret in ["my-airport", "token=abc123", "11111111-2222", "PUBLIC-KEY-VALUE", "203.0.113.9", "trojan-password", "8443",

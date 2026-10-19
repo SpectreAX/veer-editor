@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Classified AI failures; the UI maps each to a recovery action.
@@ -49,6 +50,10 @@ public struct AIRequestPayload: Sendable, Codable, Hashable {
     public var system: String?
     /// The anonymized configuration YAML included with the request.
     public var config: String?
+    /// SHA-256 of the draft the configuration was made from, to find it again for the comparison view.
+    public var sourceDigest: String?
+    /// Whether literal domains and IPs were sent as they are.
+    public var shareRuleLiterals: Bool?
 
     public init(model: String, exits: [String], history: [String], instruction: String, system: String? = nil, config: String? = nil) {
         self.model = model
@@ -57,6 +62,10 @@ public struct AIRequestPayload: Sendable, Codable, Hashable {
         self.instruction = instruction
         self.system = system
         self.config = config
+    }
+
+    public static func digest(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     public var readable: String {

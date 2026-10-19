@@ -166,3 +166,28 @@ public struct Turn: Codable, Identifiable, Sendable, Equatable {
 
     public var isNote: Bool { if case .note = outcome { true } else { false } }
 }
+
+extension Session {
+    /// The draft a turn's AI request was made from. Drafts only change by writing, undoing or
+    /// redoing, so it is one of the texts the session already keeps.
+    public func sourceDraft(for payload: AIRequestPayload, regions: (ConfigDocument) -> [String: Region]) -> String? {
+        var candidates = [draftText, originalText] + undoStack.reversed() + redoStack
+        for turn in turns.reversed() {
+            if let proposal = turn.proposal {
+                candidates += [proposal.baseDraft, proposal.writtenFrom, proposal.writtenTo].compactMap { $0 }
+            }
+        }
+        var seen = Set<String>()
+        let unique = candidates.filter { seen.insert(AIRequestPayload.digest($0)).inserted }
+        if let digest = payload.sourceDigest {
+            return unique.first { AIRequestPayload.digest($0) == digest }
+        }
+        // Payloads saved before 2026-10-19 have no digest: find the draft that produces the same YAML.
+        guard let config = payload.config else { return nil }
+        return unique.first { text in
+            guard let document = try? ConfigDocument.parse(text) else { return false }
+            let shared = !config.contains("已替换为 <域名N>")
+            return AnonymizedConfig.make(document: document, regions: regions(document), shareRuleLiterals: shared).yaml == config
+        }
+    }
+}

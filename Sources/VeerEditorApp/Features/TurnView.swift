@@ -434,34 +434,29 @@ struct FailureView: View {
 
 struct PayloadSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(EditorStore.self) private var store
     let turn: Turn
 
     var body: some View {
+        @Bindable var store = store
         VStack(alignment: .leading, spacing: Spacing.lg) {
-            Text("发送给 AI 的内容").font(.headline)
-            Text(turn.sentPayload?.config == nil ? "这是本轮请求中除系统说明外的全部内容。出口名称已替换为匿名标签。"
-                 : "这是本轮发送的匿名配置、对话与指令。配置已去除真实名称、节点参数和各类地址；系统说明见下方。")
-                .font(.callout).foregroundStyle(.secondary)
-            ScrollView {
-                Text(turn.sentPayload?.readable ?? "本轮没有发送 AI 请求。")
-                    .font(Typography.code)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Spacing.md)
-            }
-            .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.medium))
-            .overlay(RoundedRectangle(cornerRadius: Radius.medium).strokeBorder(Color.separatorLine))
-            .frame(minHeight: 220)
-            if let system = turn.sentPayload?.system {
-                DisclosureGroup("系统说明（规则与上面的匿名配置）") {
-                    ScrollView {
-                        Text(system).font(Typography.codeSmall).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(Spacing.sm)
+            HStack {
+                Text("发送给 AI 的内容").font(.headline)
+                Spacer()
+                if turn.sentPayload?.config != nil {
+                    Picker("查看方式", selection: $store.payloadComparing) {
+                        Text("发送的内容").tag(false)
+                        Text("与原始配置对照").tag(true)
                     }
-                    .frame(height: 180)
-                    .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.small))
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                .font(.callout)
+            }
+            if store.payloadComparing, let payload = turn.sentPayload {
+                PayloadComparisonView(payload: payload)
+            } else {
+                sentContent
             }
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Label("未发送：真实名称、节点地址/端口/密码/协议参数、订阅与规则集地址、DNS/TUN 等配置", systemImage: "lock.shield")
@@ -471,6 +466,143 @@ struct PayloadSheet: View {
             HStack { Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.defaultAction) }
         }
         .padding(Spacing.xl)
-        .frame(width: 640, height: 640)
+        .frame(width: store.payloadComparing ? 920 : 640, height: 680)
+    }
+
+    @ViewBuilder private var sentContent: some View {
+        Text(turn.sentPayload?.config == nil ? "这是本轮请求中除系统说明外的全部内容。出口名称已替换为匿名标签。"
+             : "这是本轮发送的匿名配置、对话与指令。配置已去除真实名称、节点参数和各类地址；系统说明见下方。")
+            .font(.callout).foregroundStyle(.secondary)
+        ScrollView {
+            Text(turn.sentPayload?.readable ?? "本轮没有发送 AI 请求。")
+                .font(Typography.code)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Spacing.md)
+        }
+        .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.medium))
+        .overlay(RoundedRectangle(cornerRadius: Radius.medium).strokeBorder(Color.separatorLine))
+        .frame(minHeight: 220)
+        if let system = turn.sentPayload?.system {
+            DisclosureGroup("系统说明（规则与上面的匿名配置）") {
+                ScrollView {
+                    Text(system).font(Typography.codeSmall).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(Spacing.sm)
+                }
+                .frame(height: 180)
+                .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.small))
+            }
+            .font(.callout)
+        }
+    }
+}
+
+/// The original configuration next to what the AI received, one row per node, group, rule set,
+/// rule and replaced value. Built on this Mac from the draft the request was made from.
+struct PayloadComparisonView: View {
+    @Environment(EditorStore.self) private var store
+    let payload: AIRequestPayload
+    @State private var result: Result?
+    @State private var query = ""
+
+    enum Result { case ready(PayloadComparison, exact: Bool), missing }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            Text("左侧是你的配置（只在本机），右侧是 AI 收到的对应内容。").font(.callout).foregroundStyle(.secondary)
+            switch result {
+            case nil:
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .missing:
+                StateView(symbol: "doc.questionmark", title: "找不到发送时的配置",
+                          message: "这一轮之后草稿被替换或会话被清理，无法重建对照。“发送的内容”仍可查看。")
+            case let .ready(comparison, exact):
+                if !exact {
+                    StatusBadge(kind: .warning, text: "发送后更正过出口地区，对照与实际发送的标签可能略有不同", compact: true)
+                }
+                TextField("搜索名称、规则或标签", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                table(comparison)
+            }
+        }
+        .task(id: payload.sourceDigest ?? payload.config) {
+            guard let session = store.current else { result = .missing; return }
+            let payload = payload
+            result = await Task.detached(priority: .userInitiated) { () -> Result in
+                let regions: (ConfigDocument) -> [String: Region] = { session.regions(for: $0.targets) }
+                guard let source = session.sourceDraft(for: payload, regions: regions),
+                      let rebuilt = PayloadComparison.rebuild(for: payload, source: source, regions: regions) else { return .missing }
+                return .ready(rebuilt.comparison, exact: rebuilt.exact)
+            }.value
+        }
+    }
+
+    private func table(_ comparison: PayloadComparison) -> some View {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let sections = comparison.sections.compactMap { section -> PayloadComparison.Section? in
+            guard !needle.isEmpty else { return section }
+            let rows = section.rows.filter { $0.original.lowercased().contains(needle) || $0.sent.lowercased().contains(needle) }
+            return rows.isEmpty ? nil : PayloadComparison.Section(title: section.title, rows: rows, note: section.note)
+        }
+        return VStack(spacing: 0) {
+            HStack(spacing: Spacing.md) {
+                Text("原始配置（仅在本机）").frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "arrow.right").hidden()
+                Text("发送给 AI").frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.sm)
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    ForEach(sections) { section in
+                        Section {
+                            ForEach(section.rows) { row in ComparisonRow(row: row) }
+                        } header: {
+                            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                                Text(section.title).font(.callout.weight(.semibold))
+                                Text("\(section.rows.count)").font(.caption).foregroundStyle(.secondary)
+                                if let note = section.note { Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                Spacer()
+                            }
+                            .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.xs + Spacing.xxs)
+                            .background(Color.surfaceRaised)
+                        }
+                    }
+                    if sections.isEmpty {
+                        Text("没有匹配“\(query)”的内容").font(.callout).foregroundStyle(.secondary).padding(Spacing.lg)
+                    }
+                }
+            }
+        }
+        .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.medium))
+        .overlay(RoundedRectangle(cornerRadius: Radius.medium).strokeBorder(Color.separatorLine))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.medium))
+    }
+}
+
+private struct ComparisonRow: View {
+    let row: PayloadComparison.Row
+
+    var body: some View {
+        let unchanged = row.original == row.sent
+        let withheld = row.sent == "未发送"
+        HStack(spacing: Spacing.md) {
+            Text(row.original).frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "arrow.right").font(.caption).foregroundStyle(.tertiary)
+            Group {
+                if withheld {
+                    Label("未发送", systemImage: "lock.fill").foregroundStyle(.secondary)
+                } else {
+                    Text(row.sent).foregroundStyle(unchanged ? Color.secondary : Color.primary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(Typography.codeSmall)
+        .lineLimit(1).truncationMode(.middle)
+        .textSelection(.enabled)
+        .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.xs)
+        .help(unchanged ? "原样发送（公共分类或内置出口）" : "\(row.original) → \(row.sent)")
     }
 }
