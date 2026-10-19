@@ -47,15 +47,7 @@ struct AssistantTurn: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             StepsView(turn: turn, expanded: $stepsExpanded)
             if let reasoning = turn.reasoning, !reasoning.isEmpty {
-                DisclosureGroup("模型思考（由 \(turn.mode.label) 提供）") {
-                    ScrollView {
-                        Text(reasoning).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(Spacing.sm)
-                    }
-                    .frame(maxHeight: 220)
-                    .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.small))
-                }
-                .font(.callout)
+                ReasoningView(text: reasoning, running: turn.outcome == .running, source: turn.mode.label)
             }
             if let understanding = turn.understanding, !understanding.isEmpty {
                 Label { Text(understanding).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) } icon: {
@@ -454,13 +446,8 @@ struct PayloadSheet: View {
                 Text("发送给 AI 的内容").font(.headline)
                 Spacer()
                 if turn.sentPayload?.config != nil {
-                    Picker("查看方式", selection: $store.payloadComparing) {
-                        Text("发送的内容").tag(false)
-                        Text("与原始配置对照").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-            .neutralSegments()
-                    .labelsHidden()
+                    SegmentedControl(label: "查看方式", selection: $store.payloadComparing,
+                                     options: [.init(value: false, title: "发送的内容"), .init(value: true, title: "与原始配置对照")])
                     .fixedSize()
                 }
             }
@@ -615,5 +602,51 @@ private struct ComparisonRow: View {
         .textSelection(.enabled)
         .padding(.horizontal, Spacing.md).padding(.vertical, Spacing.xs)
         .help(unchanged ? "原样发送（公共分类或内置出口）" : "\(row.original) → \(row.sent)")
+    }
+}
+
+/// The model's reasoning. While the turn runs it is open and follows the newest text; once the
+/// answer arrives it folds into a disclosure the user can reopen.
+struct ReasoningView: View {
+    let text: String
+    let running: Bool
+    let source: String
+    @State private var expanded = false
+
+    var body: some View {
+        if running {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                HStack(spacing: Spacing.sm) {
+                    ProgressView().controlSize(.small)
+                    Text("模型正在思考…").font(.callout).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+                box(followingEnd: true)
+            }
+        } else {
+            DisclosureGroup(isExpanded: $expanded) {
+                box(followingEnd: false)
+            } label: {
+                Text("模型思考（由 \(source) 提供）").font(.callout)
+            }
+        }
+    }
+
+    private func box(followingEnd: Bool) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear.frame(height: 1).id("end")
+                }
+                .padding(Spacing.sm)
+            }
+            .frame(maxHeight: followingEnd ? 160 : 220)
+            .background(Color.subtleFill, in: RoundedRectangle(cornerRadius: Radius.small))
+            .onChange(of: text) { if followingEnd { proxy.scrollTo("end", anchor: .bottom) } }
+            .onAppear { if followingEnd { proxy.scrollTo("end", anchor: .bottom) } }
+        }
+        .accessibilityLabel("模型思考")
     }
 }

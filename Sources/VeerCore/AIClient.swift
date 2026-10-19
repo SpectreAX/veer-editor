@@ -83,6 +83,20 @@ public struct AIRequestPayload: Sendable, Codable, Hashable {
 
 public protocol AITransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+    /// The response body line by line as it arrives (server-sent events).
+    func lines(_ request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<String, Error>)
+}
+
+public extension AITransport {
+    /// Transports that cannot stream deliver the whole body at once, split into lines.
+    func lines(_ request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<String, Error>) {
+        let (data, response) = try await send(request)
+        let lines = String(decoding: data, as: UTF8.self).components(separatedBy: "\n")
+        return (response, AsyncThrowingStream { continuation in
+            for line in lines { continuation.yield(line) }
+            continuation.finish()
+        })
+    }
 }
 
 /// URLSession transport that refuses redirects and caps the body at 512 KB.
@@ -101,6 +115,31 @@ public final class URLSessionTransport: NSObject, AITransport, URLSessionTaskDel
         return (data, http)
     }
 
+    /// Streaming responses carry reasoning as well as the answer, so they get a larger cap.
+    public static let maxStreamBytes = 2 * 1024 * 1024
+
+    public func lines(_ request: URLRequest) async throws -> (HTTPURLResponse, AsyncThrowingStream<String, Error>) {
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else { throw AIFailure.invalidResponse("AI 服务返回了无法识别的响应。") }
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                do {
+                    var total = 0
+                    for try await line in bytes.lines {
+                        total += line.utf8.count + 1
+                        if total > Self.maxStreamBytes { throw AIFailure.invalidResponse("AI 服务响应超过 2 MB 限制，请缩短指令或降低思考强度后重试。") }
+                        continuation.yield(line)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (http, stream)
+    }
+
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                            newRequest request: URLRequest) async -> URLRequest? { nil }
 }
@@ -110,6 +149,8 @@ public final class URLSessionTransport: NSObject, AITransport, URLSessionTaskDel
 public struct AIRequest: Sendable {
     public let urlRequest: URLRequest
     public let format: AIAPIFormat
+    /// Asked the service to stream (server-sent events), so reasoning can be shown as it arrives.
+    public var streaming = false
 }
 
 public struct AIClient: Sendable {
@@ -160,7 +201,7 @@ public struct AIClient: Sendable {
     // MARK: Requests
 
     public func makeRequest(settings: AISettings, apiKey: String?, system: String, history: [(role: String, content: String)], prompt: String,
-                            followUps: [(role: String, content: String)] = []) throws -> AIRequest {
+                            followUps: [(role: String, content: String)] = [], stream: Bool = false) throws -> AIRequest {
         if settings.provider.needsKey && (apiKey ?? "").trimmingCharacters(in: .whitespaces).isEmpty { throw AIFailure.missingKey }
         let model = settings.model.trimmingCharacters(in: .whitespaces)
         guard !model.isEmpty else { throw AIFailure.invalidEndpoint("请选择或填写模型。") }
@@ -175,7 +216,7 @@ public struct AIClient: Sendable {
         switch format {
         case .openAI:
             url = try Self.endpoint(for: settings.baseURL)
-            body = ["model": model, "stream": false,
+            body = ["model": model, "stream": stream,
                     "messages": [["role": "system", "content": system]] + turns.map { ["role": $0.role, "content": $0.content] }]
             switch (style, thinks) {
             case (.openAIEffort, _):
@@ -201,12 +242,15 @@ public struct AIClient: Sendable {
             body = ["model": model, "system": system, "max_tokens": budget + 4_096,
                     "messages": Self.alternating(turns).map { ["role": $0.role, "content": $0.content] }]
             if thinks { body["thinking"] = ["type": "enabled", "budget_tokens": budget] } else { body["temperature"] = 0 }
+            if stream { body["stream"] = true }
         case .gemini:
             let path = model.hasPrefix("models/") ? String(model.dropFirst(7)) : model
             guard let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/:"))) else {
                 throw AIFailure.invalidEndpoint("模型名称无效。")
             }
-            url = try Self.url(settings.baseURL, appending: "/models/\(escaped):generateContent")
+            url = stream
+                ? try Self.url(settings.baseURL, appending: "/models/\(escaped):streamGenerateContent", query: [URLQueryItem(name: "alt", value: "sse")])
+                : try Self.url(settings.baseURL, appending: "/models/\(escaped):generateContent")
             var generation: [String: Any] = ["responseMimeType": "application/json"]
             if !thinks { generation["temperature"] = 0 }
             switch style {
@@ -226,8 +270,9 @@ public struct AIClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         Self.authorize(&request, format: format, apiKey: apiKey)
+        if stream { request.setValue("text/event-stream", forHTTPHeaderField: "Accept") }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        return AIRequest(urlRequest: request, format: format)
+        return AIRequest(urlRequest: request, format: format, streaming: stream)
     }
 
     /// Claude and Gemini need user/assistant turns to alternate, starting with the user.
@@ -262,32 +307,83 @@ public struct AIClient: Sendable {
         let data: Data, response: HTTPURLResponse
         do {
             (data, response) = try await transport.send(request)
-        } catch let failure as AIFailure {
-            throw failure
-        } catch is CancellationError {
-            throw AIFailure.cancelled
-        } catch let error as URLError {
-            switch error.code {
-            case .cancelled: throw AIFailure.cancelled
-            case .timedOut: throw AIFailure.timeout
-            case .httpTooManyRedirects, .redirectToNonExistentLocation: throw AIFailure.invalidResponse("AI 服务返回了重定向，Veer 不会跟随。请检查服务地址。")
-            default: throw AIFailure.network
-            }
         } catch {
-            throw AIFailure.network
+            throw Self.failure(for: error)
         }
+        try Self.check(status: response.statusCode, body: data, format: format)
+        return data
+    }
+
+    /// Maps transport errors (URLError, cancellation) to the failures the UI knows how to recover from.
+    static func failure(for error: Error) -> AIFailure {
+        switch error {
+        case let failure as AIFailure: return failure
+        case is CancellationError: return .cancelled
+        case let error as URLError:
+            switch error.code {
+            case .cancelled: return .cancelled
+            case .timedOut: return .timeout
+            case .httpTooManyRedirects, .redirectToNonExistentLocation: return .invalidResponse("AI 服务返回了重定向，Veer 不会跟随。请检查服务地址。")
+            default: return .network
+            }
+        default: return .network
+        }
+    }
+
+    static func check(status: Int, body data: Data, format: AIAPIFormat) throws {
         let detail = Self.errorMessage(data)
-        switch response.statusCode {
-        case 200..<300: return data
+        switch status {
+        case 200..<300: return
         case 300..<400: throw AIFailure.invalidResponse("AI 服务返回了重定向，Veer 不会跟随。请检查服务地址。")
-        case 401, 403: throw AIFailure.unauthorized(response.statusCode)
+        case 401, 403: throw AIFailure.unauthorized(status)
         case 400 where format == .gemini && (detail?.localizedCaseInsensitiveContains("api key") ?? false): throw AIFailure.unauthorized(400)
         case 429: throw AIFailure.rateLimited
-        case 500...: throw AIFailure.server(response.statusCode)
+        case 500...: throw AIFailure.server(status)
         default:
-            if let detail { throw AIFailure.rejected(response.statusCode, detail) }
-            throw AIFailure.http(response.statusCode)
+            if let detail { throw AIFailure.rejected(status, detail) }
+            throw AIFailure.http(status)
         }
+    }
+
+    // MARK: Streaming
+
+    /// Streams one request, reporting the model's reasoning as it grows (about every 0.15 s), and
+    /// returns the same content and reasoning as `completeWithReasoning`. A service that ignores
+    /// the stream flag and answers with one JSON body still works.
+    public func stream(_ request: AIRequest, onReasoning: @Sendable (String) async -> Void) async throws -> (content: String, reasoning: String?) {
+        var accumulator = StreamAccumulator(format: request.format)
+        var reported = ""
+        var lastReport = Date.distantPast
+        do {
+            let (response, lines) = try await transport.lines(request.urlRequest)
+            if !(200..<300).contains(response.statusCode) {
+                var body = ""
+                for try await line in lines { body += line + "\n" }
+                try Self.check(status: response.statusCode, body: Data(body.utf8), format: request.format)
+            }
+            for try await line in lines {
+                try Task.checkCancellation()
+                accumulator.feed(line)
+                if let failure = accumulator.failure { throw failure }
+                let live = accumulator.liveReasoning
+                if live.count > reported.count, Date().timeIntervalSince(lastReport) >= 0.15 {
+                    reported = live
+                    lastReport = Date()
+                    await onReasoning(live)
+                }
+            }
+        } catch {
+            throw Self.failure(for: error)
+        }
+        let result: (content: String, reasoning: String?)
+        if accumulator.sawEvents {
+            result = try accumulator.result()
+        } else {
+            // Not an event stream: one ordinary JSON response.
+            result = try Self.parse(Data(accumulator.raw.utf8), format: request.format)
+        }
+        if let reasoning = result.reasoning, reasoning != reported { await onReasoning(reasoning) }
+        return result
     }
 
     /// `{"error":{"message":…}}`, the shape OpenAI, Claude and Gemini all use.
@@ -392,5 +488,97 @@ public struct AIClient: Sendable {
     /// Instructions for every Veer client; see `SystemPrompt`.
     public static func systemPrompt(config: String) -> String {
         SystemPrompt.build(config: config)
+    }
+}
+
+/// Collects a server-sent-event response: answer text, reasoning text and how it ended.
+struct StreamAccumulator {
+    let format: AIAPIFormat
+    var content = ""
+    var reasoning = ""
+    var finish: String?
+    var failure: AIFailure?
+    /// Whether any `data:` event arrived; if not, `raw` holds an ordinary JSON body.
+    var sawEvents = false
+    var raw = ""
+
+    static let maxContent = 100_000
+    static let maxReasoning = 200_000
+
+    mutating func feed(_ line: String) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("data:") else {
+            if !sawEvents { raw += line + "\n" }
+            return
+        }
+        sawEvents = true
+        let payload = trimmed.dropFirst(5).trimmingCharacters(in: .whitespaces)
+        guard payload != "[DONE]", let data = payload.data(using: .utf8),
+              let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        if let error = event["error"] {
+            let message = ((error as? [String: Any])?["message"] as? String) ?? (error as? String) ?? "AI 服务在回答过程中出错。"
+            failure = .invalidResponse("AI 服务出错：\(message.prefix(200))")
+            return
+        }
+        switch format {
+        case .openAI:
+            guard let choice = (event["choices"] as? [[String: Any]])?.first else { return }
+            let delta = choice["delta"] as? [String: Any] ?? [:]
+            append(content: delta["content"] as? String, reasoning: (delta["reasoning_content"] as? String) ?? (delta["reasoning"] as? String))
+            if let reason = choice["finish_reason"] as? String { finish = reason }
+        case .anthropic:
+            switch event["type"] as? String {
+            case "content_block_delta":
+                let delta = event["delta"] as? [String: Any] ?? [:]
+                switch delta["type"] as? String {
+                case "text_delta": append(content: delta["text"] as? String, reasoning: nil)
+                case "thinking_delta": append(content: nil, reasoning: delta["thinking"] as? String)
+                default: break
+                }
+            case "message_delta":
+                if let reason = (event["delta"] as? [String: Any])?["stop_reason"] as? String { finish = reason }
+            default: break
+            }
+        case .gemini:
+            if let blocked = (event["promptFeedback"] as? [String: Any])?["blockReason"] as? String {
+                failure = .invalidResponse("AI 服务拒绝回答（\(blocked)），请换一种说法。")
+                return
+            }
+            guard let candidate = (event["candidates"] as? [[String: Any]])?.first else { return }
+            for part in (candidate["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? [] {
+                if part["thought"] as? Bool == true { append(content: nil, reasoning: part["text"] as? String) }
+                else { append(content: part["text"] as? String, reasoning: nil) }
+            }
+            if let reason = candidate["finishReason"] as? String { finish = reason }
+        }
+    }
+
+    private mutating func append(content piece: String?, reasoning thought: String?) {
+        if let piece, content.count < Self.maxContent { content += piece }
+        if let thought, reasoning.count < Self.maxReasoning { reasoning += thought }
+    }
+
+    /// Reasoning so far, including open models that think inside `<think>` tags in the answer.
+    var liveReasoning: String {
+        if !reasoning.isEmpty { return reasoning }
+        guard content.hasPrefix("<think>") else { return "" }
+        let body = content.dropFirst("<think>".count)
+        if let close = body.range(of: "</think>") { return String(body[..<close.lowerBound]) }
+        return String(body)
+    }
+
+    func result() throws -> (content: String, reasoning: String?) {
+        switch finish {
+        case "length", "max_tokens", "MAX_TOKENS": throw AIClient.incomplete
+        case let reason? where format == .gemini && reason != "STOP": throw AIFailure.invalidResponse("AI 服务拒绝回答（\(reason)），请换一种说法。")
+        default: break
+        }
+        let split = AIClient.splitThinkTags(content)
+        let text = split.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw finish == nil ? AIClient.incomplete : AIFailure.invalidResponse("AI 返回的内容为空或超过长度限制。")
+        }
+        let thought = reasoning.isEmpty ? split.reasoning : reasoning
+        return (text, thought.map { String($0.prefix(20_000)) })
     }
 }

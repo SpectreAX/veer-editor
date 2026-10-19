@@ -48,6 +48,8 @@ enum SnapshotRunner {
         store.composerText = "YouTube 走 @"
         store.composerFocusToken += 1
         await shot("04-mention")
+        store.composerText = "Netflix 走日本，ChatGPT 走美国，YouTube 走香港"
+        await shot("04b-typed")
         store.composerText = ""
 
         store.send("Netflix 走日本，ChatGPT 走美国")
@@ -214,6 +216,19 @@ enum SnapshotRunner {
         store.send("所有国外AI服务，策略组排除所有港澳节点")
         await waitIdle(store)
         await shot("27-exclude-regions")
+
+        // Live reasoning while a thinking model works (a staged running turn).
+        if var session = store.current {
+            var live = Turn(prompt: "Google 走台湾，Netflix 走新加坡", mode: .ai(model: "deepseek-v4-pro · 深度思考 · 高"),
+                            steps: EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: $0.offset == 0 ? .running : .waiting) })
+            live.reasoning = "用户想让 Google 的流量走台湾，Netflix 走新加坡。\n配置里有“台湾自动”和“新加坡节点”两个地区策略组，可以直接使用。\nGoogle 对应 MetaCubeX geosite 的 google 规则集，Netflix 对应 netflix 规则集。\n两条规则都应插在 MATCH 之前……"
+            session.turns.append(live)
+            store.current = session
+            await shot("29-live-reasoning")
+            session.turns.removeLast()
+            store.current = session
+            await settle(0.3)
+        }
 
         // Model and thinking strength; settings list the service's models.
         store.settings = AISettings(provider: .deepSeek, model: "deepseek-v4-pro", thinkingLevel: .high)

@@ -119,6 +119,8 @@ struct UnderstandingAndRepairTests {
         #expect(events.items.contains("understanding:国外 AI 服务排除港澳"))
         #expect(events.items.contains("reasoning:先找服务，再找出口。"))
         #expect(transport.requests.count == 2)
+        // Thinking models stream, so reasoning can show while they work.
+        #expect(transport.requests.allSatisfy { $0["stream"] as? Bool == true })
         let followUp = (transport.requests[1]["messages"] as? [[String: String]])?.last?["content"] ?? ""
         #expect(followUp.contains("无法使用") && followUp.contains("不存在的出口"))
     }

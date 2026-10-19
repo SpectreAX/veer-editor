@@ -44,6 +44,8 @@ public enum RuleSetCatalog {
         "anthropic": "Claude", "discord": "Discord", "amazon": "Amazon", "cloudflare": "Cloudflare",
         "category-ai-!cn": "国外 AI 服务", "category-ai-chat-!cn": "国外 AI 对话", "category-ai-cn": "国内 AI 服务",
         "google-gemini": "Gemini", "perplexity": "Perplexity", "xai": "Grok", "groq": "Groq", "poe": "Poe", "category-games": "游戏",
+        "reddit": "Reddit", "twitch": "Twitch", "paypal": "PayPal", "douyin": "抖音", "bing": "Bing", "category-media": "国外流媒体",
+        "pixiv": "Pixiv", "hbo": "HBO", "primevideo": "Prime Video", "geoip:cn": "中国 IP", "geoip:private": "局域网",
     ]
 
     public static func displayName(for name: String) -> String {

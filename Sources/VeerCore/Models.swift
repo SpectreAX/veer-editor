@@ -61,15 +61,15 @@ public enum Region: String, CaseIterable, Sendable, Codable {
     /// Matches a region the user asks for in an instruction.
     var instructionPattern: String? {
         switch self {
-        case .jp: #"日本|日区|\bjp\b|\bjapan\b"#
-        case .us: #"美国|美区|\bus\b|\busa\b|united states"#
-        case .hk: #"香港|港区|港澳|\bhk\b|hong\s*kong"#
-        case .sg: #"新加坡|狮城|\bsg\b|singapore"#
-        case .tw: #"台湾|台区|\btw\b|taiwan"#
-        case .mo: #"澳门|港澳|\bmo\b|macau|macao"#
-        case .kr: #"韩国|韩区|\bkr\b|korea"#
-        case .gb: #"英国|\buk\b|britain"#
-        case .de: #"德国|\bgermany\b"#
+        case .jp: #"日本|日区|日區|东京|東京|大阪|\bjp\b|\bjapan\b|tokyo|osaka"#
+        case .us: #"美国|美國|美区|美區|洛杉矶|洛杉磯|圣何塞|聖何塞|硅谷|矽谷|纽约|紐約|西雅图|西雅圖|芝加哥|\bus\b|\busa\b|united states|los angeles|san jose|new york|seattle"#
+        case .hk: #"香港|港区|港區|港澳|\bhk\b|hong\s*kong"#
+        case .sg: #"新加坡|狮城|獅城|\bsg\b|singapore"#
+        case .tw: #"台湾|台灣|臺灣|台区|台區|台北|臺北|\btw\b|taiwan|taipei"#
+        case .mo: #"澳门|澳門|港澳|\bmo\b|macau|macao"#
+        case .kr: #"韩国|韓國|韩区|首尔|首爾|\bkr\b|korea|seoul"#
+        case .gb: #"英国|英國|伦敦|倫敦|\buk\b|britain|london"#
+        case .de: #"德国|德國|法兰克福|法蘭克福|\bgermany\b|frankfurt"#
         case .unknown: nil
         }
     }

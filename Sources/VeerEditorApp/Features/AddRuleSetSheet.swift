@@ -55,13 +55,8 @@ struct AddRuleSetSheet: View {
                 Text("把一个在线规则集里的网站交给你选的出口。Veer 会先确认地址存在、用 Mihomo 校验，再交给你审阅后写入草稿。")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            Picker("方式", selection: $mode) {
-                Text("从常用仓库选择").tag(0)
-                Text("粘贴规则集地址").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .neutralSegments()
-            .labelsHidden()
+            SegmentedControl(label: "方式", selection: $mode,
+                             options: [.init(value: 0, title: "从常用仓库选择"), .init(value: 1, title: "粘贴规则集地址")])
             .fixedSize()
 
             Form {

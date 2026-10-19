@@ -2,23 +2,92 @@ import Foundation
 
 /// Deterministic parsing of common instructions, used without an AI service.
 public enum LocalIntentParser {
-    /// Services with a known MetaCubeX geosite set.
+    /// Services with a verified MetaCubeX set. "geoip:" names use the geoip source.
     static let services: [(pattern: String, geosite: String)] = [
         (#"国外\s*ai|ai\s*服务|ai\s*服務|人工智能|^ai\b|\sai\b"#, "category-ai-!cn"),
         (#"gemini"#, "google-gemini"),
-        (#"netflix|奈飞|网飞"#, "netflix"),
+        (#"netflix|奈飞|网飞|網飛"#, "netflix"),
         (#"chatgpt|openai"#, "openai"),
         (#"youtube|油管"#, "youtube"),
-        (#"telegram|电报|\btg\b"#, "telegram"),
+        (#"telegram|电报|電報|\btg\b"#, "telegram"),
         (#"google|谷歌"#, "google"),
         (#"github"#, "github"),
         (#"spotify"#, "spotify"),
-        (#"tiktok|抖音国际"#, "tiktok"),
+        (#"tiktok|抖音国际|抖音國際"#, "tiktok"),
+        (#"(?<!国际)抖音(?!国际|國際)|douyin"#, "douyin"),
         (#"claude|anthropic"#, "anthropic"),
         (#"disney"#, "disney"),
         (#"巴哈姆特|巴哈|bahamut"#, "bahamut"),
-        (#"广告|\bads?\b"#, "category-ads-all"),
+        (#"facebook|脸书|臉書|\bfb\b|\bmeta\b"#, "facebook"),
+        (#"instagram|\bins\b|\big\b"#, "instagram"),
+        (#"microsoft|微软|微軟|onedrive|outlook|office\s*365"#, "microsoft"),
+        (#"apple|苹果|蘋果|icloud|app\s*store"#, "apple"),
+        (#"twitter|推特|(?<![a-z0-9.])x(?![a-z0-9.])"#, "twitter"),
+        (#"discord"#, "discord"),
+        (#"prime\s*video"#, "primevideo"),
+        (#"amazon|亚马逊|亞馬遜"#, "amazon"),
+        (#"steam"#, "steam"),
+        (#"bilibili|b\s*站|哔哩哔哩|嗶哩嗶哩"#, "bilibili"),
+        (#"reddit"#, "reddit"),
+        (#"twitch"#, "twitch"),
+        (#"paypal"#, "paypal"),
+        (#"\bbing\b|必应|必應"#, "bing"),
+        (#"pixiv"#, "pixiv"),
+        (#"\bhbo\b"#, "hbo"),
+        (#"perplexity"#, "perplexity"),
+        (#"grok|\bxai\b"#, "xai"),
+        (#"流媒体|流媒體|串流|视频网站|影音"#, "category-media"),
+        (#"游戏|遊戲|\bgames?\b"#, "category-games"),
+        (#"(国内|中国|大陆|大陸|中國)\s*(网站|網站|域名|服务|服務)"#, "cn"),
+        (#"(国内|中国|大陆|大陸|中國)\s*ip"#, "geoip:cn"),
+        (#"局域网|局域網|(?<!国|國)内网|(?<!国|國)內網|私有地址|\blan\b"#, "geoip:private"),
+        (#"广告|廣告|\bads?\b"#, "category-ads-all"),
     ]
+
+    /// Catalog reference for a service name from `services`.
+    static func catalog(_ name: String) -> RuleSetReference {
+        name.hasPrefix("geoip:") ? .catalog(source: "metacubex-geoip", name: String(name.dropFirst(6))) : .catalog(source: "metacubex-geosite", name: name)
+    }
+
+    /// RULE-SET rules whose rule-set name is the service ("netflix", "Netflix", "netflix-2") and
+    /// GEOSITE rules for it.
+    static func serviceRules(_ geosite: String, in rules: [String]) -> [(type: String, payload: String)] {
+        func key(_ value: String) -> String { value.lowercased().filter { $0.isLetter || $0.isNumber } }
+        let isGeoIP = geosite.hasPrefix("geoip:")
+        let bare = isGeoIP ? String(geosite.dropFirst(6)) : geosite
+        // Veer names geoip rule sets "<name>-ip".
+        let wanted = key(bare) + (isGeoIP ? "ip" : "")
+        var found: [(type: String, payload: String)] = []
+        for rule in rules {
+            let parts = rule.split(separator: ",", maxSplits: 2).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count >= 2 else { continue }
+            let type = parts[0].uppercased(), payload = parts[1]
+            let matches = type == "RULE-SET" ? key(payload) == wanted || key(payload).hasPrefix(wanted) && key(payload).dropFirst(wanted.count).allSatisfy(\.isNumber)
+                : type == (isGeoIP ? "GEOIP" : "GEOSITE") && payload.lowercased() == bare.lowercased()
+            if matches, !found.contains(where: { $0.type == type && $0.payload == payload }) { found.append((type, payload)) }
+        }
+        return found
+    }
+
+    /// IPv4/IPv6 addresses and CIDR networks in a clause, as rules (a bare address becomes /32 or /128).
+    static func ipNetworks(in text: String) -> [(type: String, cidr: String)] {
+        var found: [(type: String, cidr: String)] = []
+        for raw in matchesOf(#"(?<![0-9a-f:.])(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?(?![0-9.])|(?<![0-9a-z:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?:/\d{1,3})?(?![0-9a-z:])"#, in: text) {
+            let parts = raw.split(separator: "/")
+            guard let address = IPAddress(String(parts[0])) else { continue }
+            let v6 = address.bytes.count == 16
+            let cidr = parts.count > 1 ? raw : "\(raw)/\(v6 ? 128 : 32)"
+            guard IPAddress.network(cidr) != nil, !found.contains(where: { $0.cidr == cidr }) else { continue }
+            found.append((v6 ? "IP-CIDR6" : "IP-CIDR", cidr))
+        }
+        return found
+    }
+
+    /// The region or exit a clause names ("日本", "@香港出口"), for a follow-up question.
+    static func mentionedPlace(_ clause: String, exits: [Target]) -> String? {
+        if let named = exits.map(\.name).sorted(by: { $0.count > $1.count }).first(where: { clause.contains($0) }) { return named }
+        return Region.allCases.first { $0.instructionPattern.map(clause.matches) ?? false }?.displayName
+    }
 
     static let outOfScopePattern = #"延迟|太卡|很卡|卡顿|最快|测速|ping|latency|slow|fastest|换个?节点|换一个|切换节点|开启?vpn|启动vpn|关闭vpn|连接代理|断开"#
 
@@ -27,7 +96,9 @@ public enum LocalIntentParser {
     /// True when the instruction asks for something outside rule editing. Checked before any AI call.
     public static func isOutOfScope(_ prompt: String) -> Bool { prompt.matches(outOfScopePattern) }
 
-    public static func parse(_ prompt: String, targets: [Target], regions: [String: Region]) throws -> AssistantReply {
+    /// `rules` are the draft's current rules; deleting a service ("删除 Netflix 规则") removes the
+    /// rule-set and GEOSITE rules that actually exist for it.
+    public static func parse(_ prompt: String, targets: [Target], regions: [String: Region], rules: [String] = []) throws -> AssistantReply {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EditorError("请输入希望修改的分流，例如“Netflix 走日本”。") }
         if isOutOfScope(trimmed) { return .outOfScope(outOfScopeMessage) }
@@ -37,9 +108,13 @@ public enum LocalIntentParser {
         let exitNames = exits.map(\.name)
         var operations: [EditPlan.Operation] = []
         var newGroupCount = 0
-        for clause in mergeExitOnlyClauses(clauses(trimmed, exitNames: exits.map(\.name)), exitNames: exits.map(\.name)) {
+        let allClauses = mergeExitOnlyClauses(clauses(trimmed, exitNames: exits.map(\.name)), exitNames: exits.map(\.name))
+        let clauseCount = allClauses.count
+        for clause in allClauses {
+            // Deleting comes first: "去掉 example.com 的规则" is a removal, not a negation.
+            let removing = clause.matches(#"删除|移除|删掉|刪除|remove|delete"#) || clause.matches(#"(去掉|取消|不要).{0,40}规则"#)
             // Exclusions with a region ("排除港澳") are handled by resolveExit; other negations are not.
-            let negated = clause.matches(#"不要|不走|别走|别用|不使用|除了|除外|排除|去掉|except|unless|\bnot\b|don't"#)
+            let negated = !removing && clause.matches(#"不要|不走|别走|别用|不使用|除了|除外|排除|去掉|except|unless|\bnot\b|don't"#)
             if negated && !Region.allCases.contains(where: { $0.instructionPattern.map(clause.matches) ?? false }) {
                 throw EditorError("本地解析不支持这种否定或例外条件。可以说“排除港澳”这样的地区排除，或切换到 AI 解析。")
             }
@@ -47,14 +122,29 @@ public enum LocalIntentParser {
             var scan = clause
             for name in exits.map(\.name).sorted(by: { $0.count > $1.count }) { scan = scan.replacingOccurrences(of: name, with: " ") }
             let domains = matchesOf(#"\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\b"#, in: scan).map { $0.lowercased() }
-            let geosites = domains.isEmpty ? services.filter { scan.matches($0.pattern) }.map(\.geosite) : []
-            guard !domains.isEmpty || !geosites.isEmpty else {
-                throw EditorError("本地解析只认识常见服务（Netflix、ChatGPT、YouTube、Telegram、Google、GitHub、Spotify、TikTok、Claude、Disney+、广告）和明确域名。其他说法请切换到 AI 解析。")
+            // IP addresses and networks: 10.0.0.0/8, 192.168.1.1, 2001:db8::/32.
+            let networks = ipNetworks(in: scan)
+            let geosites = domains.isEmpty && networks.isEmpty ? services.filter { scan.matches($0.pattern) }.map(\.geosite) : []
+            guard !domains.isEmpty || !geosites.isEmpty || !networks.isEmpty else {
+                if clauseCount == 1, let place = mentionedPlace(clause, exits: exits) {
+                    // Only where to send it, not what: ask instead of failing.
+                    return .clarification("哪些流量走\(place)？可以说服务、域名或 IP，例如：", options: ["Netflix", "YouTube", "ChatGPT"].map {
+                        ClarifyOption(label: $0, prompt: "\($0) 走\(place)")
+                    })
+                }
+                throw EditorError("本地解析认识常见服务（如 Netflix、YouTube、ChatGPT、Claude、Google、Apple、微软、B站、Steam、广告、国内网站、局域网）、明确的域名和 IP。其他说法请切换到 AI 解析。")
             }
 
-            if clause.matches(#"删除|移除|去掉|remove|delete"#) {
+            if removing {
                 for domain in domains { operations.append(.removeRule(matchType: "DOMAIN-SUFFIX", match: domain)) }
-                if !geosites.isEmpty { throw EditorError("本地解析只能删除明确域名的规则，例如“删除 example.com 的规则”。") }
+                for network in networks { operations.append(.removeRule(matchType: network.type, match: network.cidr)) }
+                for geosite in geosites {
+                    let found = serviceRules(geosite, in: rules)
+                    guard !found.isEmpty else {
+                        throw EditorError("配置中没有\(RuleSetCatalog.displayName(for: geosite))相关的规则集或 GEOSITE 规则，无需删除。")
+                    }
+                    operations += found.map { .removeRule(matchType: $0.type, match: $0.payload) }
+                }
                 continue
             }
 
@@ -77,8 +167,11 @@ public enum LocalIntentParser {
                 })
             }
             for domain in domains { operations.append(.route(matchType: "DOMAIN-SUFFIX", match: domain, targetId: targetID)) }
+            for network in networks {
+                operations.append(.route(matchType: network.type, match: network.cidr, targetId: targetID))
+            }
             for geosite in geosites {
-                operations.append(.ruleSet(.catalog(source: "metacubex-geosite", name: geosite), targetId: targetID))
+                operations.append(.ruleSet(catalog(geosite), targetId: targetID))
             }
         }
         guard !operations.isEmpty else { throw EditorError("没有识别到可执行的修改。") }

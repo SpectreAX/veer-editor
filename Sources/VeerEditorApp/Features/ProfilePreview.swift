@@ -152,13 +152,8 @@ struct SessionOverviewSheet: View {
             }
             Divider()
             HStack(spacing: Spacing.md) {
-                Picker("范围", selection: $showOriginal) {
-                    Text("当前草稿").tag(false)
-                    Text("导入时").tag(true)
-                }
-                .pickerStyle(.segmented)
-            .neutralSegments()
-                .labelsHidden()
+                SegmentedControl(label: "范围", selection: $showOriginal,
+                                 options: [.init(value: false, title: "当前草稿"), .init(value: true, title: "导入时")])
                 .fixedSize()
                 if store.current?.hasUnexportedChanges == true && !showOriginal {
                     Text("包含未导出的修改").font(.caption).foregroundStyle(.secondary)
@@ -428,13 +423,8 @@ struct GroupPreviewCard: View {
 
     var body: some View {
         PreviewCard(title: "策略组预览") {
-            Picker("视图", selection: $tab) {
-                Text("分组结构").tag(0)
-                Text("规则流向").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .neutralSegments()
-            .labelsHidden()
+            SegmentedControl(label: "视图", selection: $tab,
+                             options: [.init(value: 0, title: "分组结构"), .init(value: 1, title: "规则流向")])
             .fixedSize()
             if tab == 0 { structure } else { flows }
         }

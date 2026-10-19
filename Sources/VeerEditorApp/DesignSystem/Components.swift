@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VeerCore
 
@@ -212,7 +213,37 @@ extension View {
     /// The native, uncolored look for selection controls and secondary buttons. The accent is
     /// kept for the one primary action of a view, so it stays easy to find.
     func neutralControl() -> some View { tint(nil) }
+}
 
-    /// Segmented controls: the selected segment in neutral gray instead of the accent.
-    func neutralSegments() -> some View { tint(Color.selectionNeutral) }
+/// The standard SwiftUI segmented picker with the selected segment in neutral gray
+/// (`Color.selectionNeutral`), so the accent stays on primary actions (impeccable review,
+/// 2026-10-19).
+struct SegmentedControl<Value: Hashable>: View {
+    struct Option {
+        let value: Value
+        let title: String
+        var symbol: String?
+    }
+
+    let label: String
+    @Binding var selection: Value
+    let options: [Option]
+
+    var body: some View {
+        Picker(label, selection: $selection) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                Group {
+                    if let symbol = option.symbol {
+                        Image(systemName: symbol).accessibilityLabel(option.title).help(option.title)
+                    } else {
+                        Text(option.title)
+                    }
+                }
+                .tag(option.value)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .tint(Color.selectionNeutral)
+    }
 }

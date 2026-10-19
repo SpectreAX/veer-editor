@@ -18,6 +18,8 @@ struct ComposerView: View {
     @State private var query: (trigger: Character, text: String)?
     @State private var highlighted = 0
     @State private var replaceRequest: CompletionItem?
+    /// An input method is composing (pinyin shown as marked text) but nothing is committed yet.
+    @State private var composing = false
 
     private var completions: [CompletionItem] {
         guard let query else { return [] }
@@ -48,14 +50,14 @@ struct ComposerView: View {
         VStack(spacing: Spacing.xs) {
             VStack(alignment: .leading, spacing: Spacing.sm) {
                 ZStack(alignment: .topLeading) {
-                    if store.composerText.isEmpty {
+                    if store.composerText.isEmpty && !composing {
                         Text("描述分流，例如“Netflix 走日本，ChatGPT 走美国”")
                             .foregroundStyle(.tertiary)
                             .padding(.leading, Spacing.xs + 1)
                             .allowsHitTesting(false)
                     }
                     ComposerTextView(
-                        text: $store.composerText, height: $height, query: $query,
+                        text: $store.composerText, composing: $composing, height: $height, query: $query,
                         focusToken: store.composerFocusToken, replaceRequest: $replaceRequest,
                         hasCompletions: !completions.isEmpty,
                         onMove: { delta in
@@ -166,6 +168,7 @@ struct CompletionList: View {
 /// NSTextView wrapper: Return sends unless an input method is composing; reports @ and / tokens.
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
+    @Binding var composing: Bool
     @Binding var height: CGFloat
     @Binding var query: (trigger: Character, text: String)?
     let focusToken: Int
@@ -178,10 +181,20 @@ struct ComposerTextView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        // Built by hand (not scrollableTextView()) so the text view can report marked text.
+        let textView = ComposerNSTextView(frame: .zero)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let coordinator = context.coordinator
+        textView.onMarkedTextChange = { [weak coordinator] composing in coordinator?.setComposing(composing) }
+        let scroll = NSScrollView()
+        scroll.documentView = textView
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
-        let textView = scroll.documentView as! NSTextView
+        scroll.hasHorizontalScroller = false
         textView.delegate = context.coordinator
         textView.drawsBackground = false
         textView.font = .preferredFont(forTextStyle: .body)
@@ -222,6 +235,11 @@ struct ComposerTextView: NSViewRepresentable {
         init(_ parent: ComposerTextView) {
             self.parent = parent
             focusToken = parent.focusToken
+        }
+
+        func setComposing(_ composing: Bool) {
+            guard parent.composing != composing else { return }
+            DispatchQueue.main.async { self.parent.composing = composing }
         }
 
         func textDidChange(_ notification: Notification) {
@@ -308,5 +326,26 @@ struct ComposerTextView: NSViewRepresentable {
                 return false
             }
         }
+    }
+}
+
+/// Reports when an input method starts or finishes composing, which NSTextView does not
+/// announce through textDidChange.
+final class ComposerNSTextView: NSTextView {
+    var onMarkedTextChange: ((Bool) -> Void)?
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        onMarkedTextChange?(hasMarkedText())
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        onMarkedTextChange?(hasMarkedText())
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        super.insertText(string, replacementRange: replacementRange)
+        onMarkedTextChange?(hasMarkedText())
     }
 }

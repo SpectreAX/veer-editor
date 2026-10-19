@@ -16,7 +16,8 @@ public enum SystemPrompt {
     public static let geositeNames = ["google", "youtube", "netflix", "facebook", "instagram", "microsoft", "openai", "anthropic", "apple",
                                       "twitter", "telegram", "tiktok", "spotify", "github", "discord", "disney", "amazon", "steam",
                                       "bilibili", "bahamut", "cn", "category-ads-all", "category-ai-!cn", "category-ai-chat-!cn",
-                                      "category-ai-cn", "google-gemini", "perplexity", "xai", "groq", "poe", "category-games"]
+                                      "category-ai-cn", "google-gemini", "perplexity", "xai", "groq", "poe", "category-games",
+                                      "reddit", "twitch", "paypal", "douyin", "bing", "category-media", "pixiv", "hbo", "primevideo"]
     public static let geoipNames = ["cn", "private", "google", "netflix", "telegram", "twitter", "facebook", "cloudflare"]
     public static let acl4ssrNames = ["BanAD", "BanProgramAD", "Microsoft", "Bing", "Netflix", "Telegram", "ChinaDomain", "ChinaIp",
                                       "LocalAreaNetwork", "Ruleset/Google", "Ruleset/YouTube", "Ruleset/Netflix", "Ruleset/OpenAi", "Ruleset/Telegram"]
@@ -77,6 +78,7 @@ public enum SystemPrompt {
 
         D. 删除规则：
         {"kind":"remove_rule","matchType":"DOMAIN-SUFFIX","match":"example.com"}（没有 targetId）
+        删除规则集规则时 matchType 写 RULE-SET，match 写 rules 里 RULE-SET 后面的名称（例如 netflix 或 规则集1）：{"kind":"remove_rule","matchType":"RULE-SET","match":"netflix"}
 
         E. 新建策略组（一个服务要走多个地区、多个出口，或要排除某些地区时使用，不要为此澄清）：
         {"kind":"group","id":"new-1","name":"巴哈姆特","type":"select","regions":["TW","HK"]}

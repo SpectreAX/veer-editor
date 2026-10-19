@@ -242,3 +242,89 @@ struct FileKeyStoreTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 }
+
+/// Collects the reasoning snapshots a stream reports.
+final class ReasoningLog: @unchecked Sendable {
+    private(set) var values: [String] = []
+    private let lock = NSLock()
+    func add(_ value: String) { lock.withLock { values.append(value) } }
+}
+
+struct StreamingTests {
+    func sse(_ events: [String]) -> String { events.map { "data: \($0)\n" }.joined(separator: "\n") }
+
+    @Test func streamingRequestsAskForEvents() throws {
+        var deepSeek = AISettings(provider: .deepSeek, model: "deepseek-v4-pro", thinkingLevel: .high)
+        var body = try json(try AIClient().makeRequest(settings: deepSeek, apiKey: "k", system: "s", history: [], prompt: "p", stream: true))
+        #expect(body["stream"] as? Bool == true)
+        deepSeek.thinkingLevel = .off
+        body = try json(try AIClient().makeRequest(settings: deepSeek, apiKey: "k", system: "s", history: [], prompt: "p"))
+        #expect(body["stream"] as? Bool == false)
+        let claude = try AIClient().makeRequest(settings: AISettings(provider: .anthropic, thinkingLevel: .medium), apiKey: "k", system: "s", history: [], prompt: "p", stream: true)
+        #expect(try json(claude)["stream"] as? Bool == true && claude.streaming)
+        let gemini = try AIClient().makeRequest(settings: AISettings(provider: .gemini, thinkingLevel: .high), apiKey: "k", system: "s", history: [], prompt: "p", stream: true)
+        #expect(gemini.urlRequest.url?.absoluteString == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse")
+    }
+
+    @Test func openAICompatibleStreamsReasoningThenAnswer() async throws {
+        let body = sse([
+            #"{"choices":[{"delta":{"reasoning_content":"先找服务"},"finish_reason":null}]}"#,
+            #"{"choices":[{"delta":{"reasoning_content":"，再找出口。"},"finish_reason":null}]}"#,
+            #"{"choices":[{"delta":{"content":"{\"clarification\":"},"finish_reason":null}]}"#,
+            #"{"choices":[{"delta":{"content":"\"走哪里？\"}"},"finish_reason":"stop"}]}"#,
+            "[DONE]",
+        ])
+        let request = try AIClient().makeRequest(settings: AISettings(provider: .deepSeek, thinkingLevel: .high), apiKey: "k", system: "s", history: [], prompt: "p", stream: true)
+        let log = ReasoningLog()
+        let answer = try await AIClient(transport: Recording(body: body)).stream(request) { log.add($0) }
+        #expect(answer.content == #"{"clarification":"走哪里？"}"# && answer.reasoning == "先找服务，再找出口。")
+        #expect(log.values.first == "先找服务" && log.values.last == "先找服务，再找出口。")
+    }
+
+    @Test func claudeAndGeminiStreams() async throws {
+        let claude = sse([
+            #"{"type":"message_start","message":{}}"#,
+            #"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"排除港澳"}}"#,
+            #"{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"{\"clarification\":\"哪个？\"}"}}"#,
+            #"{"type":"message_delta","delta":{"stop_reason":"end_turn"}}"#,
+        ])
+        let claudeRequest = try AIClient().makeRequest(settings: AISettings(provider: .anthropic, thinkingLevel: .low), apiKey: "k", system: "s", history: [], prompt: "p", stream: true)
+        let claudeAnswer = try await AIClient(transport: Recording(body: claude)).stream(claudeRequest) { _ in }
+        #expect(claudeAnswer.reasoning == "排除港澳" && claudeAnswer.content.contains("哪个"))
+
+        let gemini = sse([
+            #"{"candidates":[{"content":{"parts":[{"text":"想一想","thought":true}]}}]}"#,
+            #"{"candidates":[{"content":{"parts":[{"text":"{\"clarification\":\"哪个？\"}"}]},"finishReason":"STOP"}]}"#,
+        ])
+        let geminiRequest = try AIClient().makeRequest(settings: AISettings(provider: .gemini, thinkingLevel: .high), apiKey: "k", system: "s", history: [], prompt: "p", stream: true)
+        let geminiAnswer = try await AIClient(transport: Recording(body: gemini)).stream(geminiRequest) { _ in }
+        #expect(geminiAnswer.reasoning == "想一想" && geminiAnswer.content == #"{"clarification":"哪个？"}"#)
+    }
+
+    @Test func streamsHandleThinkTagsFallbackAndFailures() async throws {
+        let request = try AIClient().makeRequest(settings: AISettings(provider: .ollama, model: "deepseek-r1:8b"), apiKey: nil, system: "s", history: [], prompt: "p", stream: true)
+        let tagged = sse([
+            #"{"choices":[{"delta":{"content":"<think>用户要"},"finish_reason":null}]}"#,
+            #"{"choices":[{"delta":{"content":"日本</think>{\"clarification\":\"哪个？\"}"},"finish_reason":"stop"}]}"#,
+        ])
+        let log = ReasoningLog()
+        let answer = try await AIClient(transport: Recording(body: tagged)).stream(request) { log.add($0) }
+        #expect(answer.reasoning == "用户要日本" && answer.content == #"{"clarification":"哪个？"}"#)
+        #expect(log.values.first == "用户要")
+
+        // A service that ignores "stream": one JSON body.
+        let plain = #"{"choices":[{"finish_reason":"stop","message":{"content":"{\"clarification\":\"哪个？\"}","reasoning_content":"想"}}]}"#
+        let fallback = try await AIClient(transport: Recording(body: plain)).stream(request) { _ in }
+        #expect(fallback.content == #"{"clarification":"哪个？"}"# && fallback.reasoning == "想")
+
+        await #expect(throws: AIClient.incomplete) {
+            try await AIClient(transport: Recording(body: sse([#"{"choices":[{"delta":{"content":"{"},"finish_reason":"length"}]}"#]))).stream(request) { _ in }
+        }
+        await #expect(throws: AIFailure.invalidResponse("AI 服务出错：overloaded")) {
+            try await AIClient(transport: Recording(body: sse([#"{"error":{"message":"overloaded"}}"#]))).stream(request) { _ in }
+        }
+        await #expect(throws: AIFailure.unauthorized(401)) {
+            try await AIClient(transport: Recording(status: 401, body: #"{"error":{"message":"bad key"}}"#)).stream(request) { _ in }
+        }
+    }
+}

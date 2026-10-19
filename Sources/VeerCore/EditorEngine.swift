@@ -80,7 +80,7 @@ public struct EditorEngine: Sendable {
             return .outOfScope(LocalIntentParser.outOfScopeMessage)
         }
         guard request.useAI else {
-            let reply = try LocalIntentParser.parse(request.prompt, targets: request.draft.targets, regions: request.regions)
+            let reply = try LocalIntentParser.parse(request.prompt, targets: request.draft.targets, regions: request.regions, rules: request.draft.rules)
             await progress(.finished(0, detail: "本地解析"))
             return try await handle(reply, request: request, progress: progress)
         }
@@ -92,16 +92,20 @@ public struct EditorEngine: Sendable {
         var followUps: [(role: String, content: String)] = []
         var attempt = 0
         while true {
+            // Thinking models stream, so their reasoning shows while they work.
+            let streaming = request.settings.thinks
             let httpRequest = try ai.makeRequest(settings: request.settings, apiKey: request.apiKey, system: system, history: request.history,
-                                                 prompt: prompt, followUps: followUps)
-            let answer = try await ai.completeWithReasoning(httpRequest)
+                                                 prompt: prompt, followUps: followUps, stream: streaming)
+            let answer = streaming
+                ? try await ai.stream(httpRequest) { reasoning in await progress(.reasoning(reasoning)) }
+                : try await ai.completeWithReasoning(httpRequest)
             try Task.checkCancellation()
-            if let reasoning = answer.reasoning, !reasoning.isEmpty { await progress(.reasoning(reasoning)) }
+            if !streaming, let reasoning = answer.reasoning, !reasoning.isEmpty { await progress(.reasoning(reasoning)) }
             do {
                 let decoded = try EditPlan.decodeReplyWithUnderstanding(answer.content)
                 if let understanding = decoded.understanding, !understanding.isEmpty { await progress(.understanding(understanding)) }
                 if attempt == 0 { await progress(.finished(0, detail: "已由 \(model) 解析")) }
-                return try await handle(decoded.reply, request: request, progress: progress)
+                return try await handle(anonymized.restoringRuleSetNames(in: decoded.reply), request: request, progress: progress)
             } catch let error as EditorError where attempt < Self.repairAttempts {
                 // Send the problem back once instead of showing the user an unusable answer.
                 attempt += 1

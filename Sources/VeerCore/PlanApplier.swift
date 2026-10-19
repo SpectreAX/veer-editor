@@ -130,7 +130,7 @@ public enum PlanApplier {
                 items.append(groupItems[index]!)
                 continue
             }
-            if case .ruleSet = op {} else { try MatchValidator.validate(type: matchType, match: match) }
+            if case .ruleSet = op {} else { try MatchValidator.validate(type: matchType, match: match, removing: targetID == nil) }
             let prefix = "\(matchType),\(match),".lowercased()
             guard touched.insert(prefix).inserted else { throw EditorError("计划对 \(match) 有重复或冲突的修改，请拆分指令。") }
             let replaced = base.rules.enumerated().filter { lowerRules[$0.offset].hasPrefix(prefix) }.map(\.element)

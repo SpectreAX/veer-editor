@@ -81,13 +81,13 @@ public struct ConfigDocument: Sendable {
         let ruleNodes = try array("rules") ?? []
 
         var names = builtinPolicies
+        // Valid in Mihomo, but a rule cannot name them: kept in the config, left out of the exits.
+        var unreferenceable: [String] = []
         func name(of node: Node) throws -> String {
             guard let name = node.mapping?["name"]?.string, !name.trimmingCharacters(in: .whitespaces).isEmpty else {
                 throw EditorError("节点和策略组必须有有效名称。")
             }
-            if name.contains(",") || name.contains("\n") || name.contains("\r") {
-                throw EditorError("出口名称含逗号或换行，无法在规则中安全引用：\(name.prefix(60))")
-            }
+            if name.contains(",") || name.contains("\n") || name.contains("\r") { unreferenceable.append(name) }
             guard names.insert(name).inserted else { throw EditorError("节点或策略组名称重复：\(name.prefix(60))") }
             return name
         }
@@ -132,10 +132,10 @@ public struct ConfigDocument: Sendable {
         }
 
         var targets: [Target] = []
-        for (group, name) in zip(groups, groupNames) {
+        for (group, name) in zip(groups, groupNames) where !unreferenceable.contains(name) {
             targets.append(Target(id: "target-\(targets.count)", name: name, kind: .group, type: group.mapping?["type"]?.string))
         }
-        for (proxy, name) in zip(proxies, proxyNames) {
+        for (proxy, name) in zip(proxies, proxyNames) where !unreferenceable.contains(name) {
             targets.append(Target(id: "target-\(targets.count)", name: name, kind: .node, type: proxy.mapping?["type"]?.string))
         }
         targets.append(Target(id: "target-\(targets.count)", name: "DIRECT", kind: .builtin))
@@ -143,6 +143,10 @@ public struct ConfigDocument: Sendable {
 
         let mode = mapping["mode"]?.string
         var warnings: [String] = []
+        if !unreferenceable.isEmpty {
+            let listed = unreferenceable.prefix(3).map { "“\($0.prefix(40))”" }.joined(separator: "、")
+            warnings.append("\(unreferenceable.count) 个出口的名称含逗号或换行（\(listed)\(unreferenceable.count > 3 ? " 等" : "")），规则无法引用它们，所以不会出现在出口列表里；配置中的这些出口保持不变。")
+        }
         if proxies.isEmpty && groups.isEmpty {
             warnings.append("没有静态节点或策略组。只能使用 DIRECT 和 REJECT；动态 Provider 的节点需先通过策略组引用。")
         }

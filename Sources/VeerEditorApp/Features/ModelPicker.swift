@@ -10,13 +10,9 @@ struct ModelPopover: View {
         @Bindable var store = store
         let settings = store.settings
         VStack(alignment: .leading, spacing: Spacing.md) {
-            Picker("解析方式", selection: $store.useAI) {
-                Text("AI").tag(true)
-                Text("本地解析").tag(false)
-            }
-            .pickerStyle(.segmented)
-            .neutralSegments()
-            .labelsHidden()
+            SegmentedControl(label: "解析方式", selection: $store.useAI,
+                             options: [.init(value: true, title: "AI"), .init(value: false, title: "本地解析")])
+            .fixedSize()
             if store.useAI && !store.aiConfigured {
                 HStack {
                     StatusBadge(kind: .warning, text: "还没有 \(settings.provider.title) 的 API Key", compact: true)

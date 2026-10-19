@@ -15,9 +15,24 @@ public struct AnonymizedConfig: Sendable {
     public let context: AnonymousContext
     /// What each part of the original became, for the side-by-side view. Kept on this Mac only.
     public let comparison: PayloadComparison
+    /// Anonymous rule-set label ("规则集1") → real rule-set name, for plans that delete a rule set.
+    let ruleSetNames: [String: String]
+
+    /// A plan may delete a rule set by the label it saw; put the real name back.
+    func restoringRuleSetNames(in reply: AssistantReply) -> AssistantReply {
+        guard case .plan(var plan) = reply else { return reply }
+        plan.operations = plan.operations.map { op in
+            if case let .removeRule(type, match) = op, type == "RULE-SET", let real = ruleSetNames[match] { return .removeRule(matchType: type, match: real) }
+            return op
+        }
+        return .plan(plan)
+    }
 
     /// Groups with more members than this are summarized as counts by region.
     public static let memberListLimit = 24
+    /// Nodes beyond this are summarized by region; the model reaches them through regional groups
+    /// or a new group's `regions`, so listing thousands only costs tokens.
+    public static let nodeListLimit = 200
     /// Rules beyond this are summarized; the model never needs the long tail.
     public static let ruleLimit = 300
 
@@ -46,11 +61,32 @@ public struct AnonymizedConfig: Sendable {
         }, Tag(.seq), .block))))
 
         let nodes = document.targets.filter { $0.kind == .node }
-        section("节点", nodes.map { ($0.name, label($0.name)) }, note: "服务器、端口、密码、UUID、协议与传输参数都不发送")
-        if !nodes.isEmpty {
-            root.append(("proxies", .sequence(.init(nodes.map { target in
+        var listedNodes = nodes
+        if nodes.count > nodeListLimit {
+            // Prefer nodes that small groups name directly; those are the ones a plan might use.
+            let named = Set((analysis?.groups ?? []).filter { $0.members.count <= memberListLimit }.flatMap { $0.members.map(\.name) })
+            listedNodes = Array((nodes.filter { named.contains($0.name) } + nodes.filter { !named.contains($0.name) }).prefix(nodeListLimit))
+        }
+        let listedNames = Set(listedNodes.map(\.name))
+        let unlisted = nodes.filter { !listedNames.contains($0.name) }
+        section("节点", nodes.map { ($0.name, listedNames.contains($0.name) ? label($0.name) : "未逐个发送（按地区计数）") },
+                note: unlisted.isEmpty ? "服务器、端口、密码、UUID、协议与传输参数都不发送" : "服务器、端口、密码等都不发送；超过 \(nodeListLimit) 个时其余节点只发送按地区的数量")
+        if !listedNodes.isEmpty {
+            root.append(("proxies", .sequence(.init(nodes.filter { listedNames.contains($0.name) }.map { target in
                 flowMap([("id", scalar(target.id)), ("name", scalar(label(target.name)))])
             }, Tag(.seq), .block))))
+        }
+        if !unlisted.isEmpty {
+            var byRegion: [String: Int] = [:]
+            for node in unlisted {
+                let region = regions[node.name] ?? .unknown
+                byRegion[region == .unknown ? "未指定地区" : region.displayName, default: 0] += 1
+            }
+            root.append(("未列出的节点", .mapping(.init([
+                (scalar("数量"), scalar(String(unlisted.count), tag: .int)),
+                (scalar("按地区"), flowMap(byRegion.sorted { $0.value > $1.value }.map { ($0.key, scalar(String($0.value), tag: .int)) })),
+                (scalar("说明"), scalar("使用地区策略组，或新建策略组时用 regions 选择这些节点")),
+            ], Tag(.map), .block))))
         }
 
         let groups = analysis?.groups ?? []
@@ -143,7 +179,8 @@ public struct AnonymizedConfig: Sendable {
         let body = (try? Yams.serialize(node: .mapping(.init(root.map { (scalar($0.0), $0.1) }, Tag(.map), .block)),
                                         indent: 2, width: -1, allowUnicode: true)) ?? ""
         return AnonymizedConfig(yaml: header + ConfigImporter.readableUnicode(body), context: context,
-                                comparison: PayloadComparison(sections: sections))
+                                comparison: PayloadComparison(sections: sections),
+                                ruleSetNames: Dictionary(providerNames.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a }))
     }
 
     static func anonymize(rule: String, label: (String) -> String, providerNames: [String: String],

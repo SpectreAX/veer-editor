@@ -193,7 +193,15 @@ extension EditPlan {
 }
 
 enum MatchValidator {
-    static func validate(type: String, match: String) throws {
+    /// `removing`: deletions may also name a rule set (RULE-SET,<provider name>), including the
+    /// ones Veer added itself.
+    static func validate(type: String, match: String, removing: Bool = false) throws {
+        if removing && type == "RULE-SET" {
+            guard !match.isEmpty, match.count <= 128, match.rangeOfCharacter(from: CharacterSet(charactersIn: ", \r\n\t")) == nil else {
+                throw EditorError("规则集名称为空或包含不允许的字符。")
+            }
+            return
+        }
         guard EditPlan.matchTypes.contains(type) else { throw EditorError("暂不支持修改这类规则：\(type.prefix(30))") }
         guard !match.isEmpty, match.count <= 253, match.rangeOfCharacter(from: CharacterSet(charactersIn: ", \r\n\t")) == nil else {
             throw EditorError("规则匹配值为空或包含不允许的字符。")

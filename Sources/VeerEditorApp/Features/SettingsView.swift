@@ -41,7 +41,9 @@ struct AISettingsPane: View {
                 if store.settings.provider.needsKey { keyRow }
                 LabeledContent("连接") {
                     HStack {
+                        if !store.aiConfigured { needsKeyNote }
                         Button("测试连接") { test() }.disabled(testState == .running || !store.aiConfigured)
+                            .help(store.aiConfigured ? "发送一句固定的测试文字，确认地址、Key 和模型可用" : "先填写并保存 API Key")
                         status(testState, passed: "可以连接，JSON 输出正常")
                     }
                 }
@@ -66,8 +68,10 @@ struct AISettingsPane: View {
                 }
                 LabeledContent("模型列表") {
                     HStack {
+                        if !store.aiConfigured { needsKeyNote }
                         Button(store.settings.fetchedModels.isEmpty ? "从服务获取" : "重新获取") { fetch() }
                             .disabled(fetchState == .running || !store.aiConfigured)
+                            .help(store.aiConfigured ? "读取这个服务当前提供的对话模型" : "先填写并保存 API Key")
                         status(fetchState, passed: "已获取 \(store.settings.fetchedModels.count) 个模型")
                     }
                 }
@@ -108,6 +112,11 @@ struct AISettingsPane: View {
         } catch {
             keyError = store.message(for: error)
         }
+    }
+
+    /// Why the buttons next to it are disabled.
+    private var needsKeyNote: some View {
+        Text("先保存 API Key").font(.caption).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private func status(_ state: TestState, passed: String) -> some View {

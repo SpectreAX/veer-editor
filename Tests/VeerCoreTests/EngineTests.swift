@@ -20,7 +20,6 @@ struct ConfigDocumentTests {
         ("- a\n- b\n", "顶层必须是 YAML 映射"),
         ("rules: hello\n", "rules 必须是数组"),
         ("proxies:\n  - {name: a, type: ss}\n  - {name: a, type: ss}\n", "名称重复"),
-        ("proxies:\n  - {name: 'a,b', type: ss}\n", "逗号"),
         ("proxy-groups:\n  - {name: g, type: select, proxies: [missing]}\n", "不存在的出口"),
         ("proxy-groups:\n  - {name: a, type: select, proxies: [b]}\n  - {name: b, type: select, proxies: [a]}\n", "循环引用"),
         ("a: 1\na: 2\n", "重复"),

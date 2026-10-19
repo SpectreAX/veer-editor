@@ -7,12 +7,9 @@ struct InspectorView: View {
     var body: some View {
         @Bindable var store = store
         VStack(spacing: 0) {
-            Picker("检查器", selection: $store.inspectorTab) {
-                ForEach(InspectorTab.allCases) { tab in Text(tab.title).tag(tab) }
-            }
-            .pickerStyle(.segmented)
-            .neutralSegments()
-            .labelsHidden()
+            SegmentedControl(label: "检查器", selection: $store.inspectorTab,
+                             options: InspectorTab.allCases.map { .init(value: $0, title: $0.title) })
+            .fixedSize()
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.md)
             Divider()
@@ -247,17 +244,24 @@ struct RuleRow: View {
     let toggle: () -> Void
 
     var body: some View {
-        let parts = rule.split(separator: ",", maxSplits: 2).map(String.init)
+        let parts = RuleParts.parse(rule)
         VStack(alignment: .leading, spacing: Spacing.xs) {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                 Text("\(index + 1)").font(Typography.codeSmall).foregroundStyle(.tertiary).frame(width: 28, alignment: .trailing)
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text(parts.count > 1 ? parts[1] : parts.first ?? "").font(Typography.codeSmall).lineLimit(1).truncationMode(.middle)
+                    Text(parts.map { $0.payload ?? "其他所有流量" } ?? rule).font(Typography.codeSmall).lineLimit(1).truncationMode(.middle)
+                        .help(rule)
                     HStack(spacing: Spacing.xs) {
-                        Text(parts.first ?? "").font(.caption2).foregroundStyle(.secondary)
-                        if parts.count > 2 {
+                        Text(parts?.type ?? "无法解析").font(.caption2).foregroundStyle(.secondary)
+                        if let parts {
                             Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
-                            Text(parts[2]).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            Text(parts.target).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            ForEach(parts.flags, id: \.self) { flag in
+                                Text(flag).font(.caption2).foregroundStyle(.tertiary)
+                                    .padding(.horizontal, Spacing.xs)
+                                    .background(Color.primary.opacity(0.06), in: Capsule())
+                                    .help(flag.lowercased() == "no-resolve" ? "no-resolve：域名请求不为这条规则做 DNS 解析" : flag)
+                            }
                         }
                     }
                 }
@@ -289,9 +293,9 @@ struct TestTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text("测试域名").font(.headline)
-                    TextField("例如 www.netflix.com", text: $store.testQuery).textFieldStyle(.roundedBorder)
-                    Text("按草稿规则顺序查找第一条命中的规则。只在本机计算，不发起网络请求。").font(.caption).foregroundStyle(.secondary)
+                    Text("测试域名或 IP").font(.headline)
+                    TextField("例如 www.netflix.com 或 192.168.1.5", text: $store.testQuery).textFieldStyle(.roundedBorder)
+                    Text("按草稿规则顺序查找第一条命中的规则，域名和 IP 都可以。只在本机计算，不发起网络请求。").font(.caption).foregroundStyle(.secondary)
                 }
                 if store.testQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                     EmptyView()
@@ -303,7 +307,7 @@ struct TestTab: View {
                         MatchResultView(title: "写入候选后", result: RuleMatcher.match(domain: domain, rules: candidate.rules))
                     }
                 } else {
-                    StatusBadge(kind: .warning, text: "这不是有效的域名。").font(.callout)
+                    StatusBadge(kind: .warning, text: "这不是有效的域名或 IP 地址。").font(.callout)
                 }
             }
             .padding(Spacing.lg)
@@ -324,9 +328,18 @@ struct MatchResultView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-            if let index = result.index, let rule = result.rule {
+            if let likely = result.likely {
+                // A rule set named after the service almost certainly matches before anything local.
                 VStack(alignment: .leading, spacing: Spacing.xs) {
-                    StatusBadge(kind: .success, text: "第 \(index + 1) 条 → \(result.target ?? "?")")
+                    StatusBadge(kind: .warning, text: "很可能命中第 \(likely.index + 1) 条 → \(result.likelyTarget ?? "?")")
+                    Text(likely.rule).font(Typography.codeSmall).textSelection(.enabled)
+                    Text("规则集的内容要下载后才能确认；如果不在其中，" + (result.index.map { "会命中第 \($0 + 1) 条 → \(result.target ?? "?")。" } ?? "没有其他规则命中。"))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            } else if let index = result.index, let rule = result.rule {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    StatusBadge(kind: result.certain ? .success : .info,
+                                text: "第 \(index + 1) 条 → \(result.target ?? "?")" + (result.certain ? "" : "（前面有规则需要运行时判断）"))
                     Text(rule).font(Typography.codeSmall).textSelection(.enabled)
                 }
             } else {
