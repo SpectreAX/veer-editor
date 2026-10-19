@@ -11,6 +11,7 @@ struct InspectorView: View {
                 ForEach(InspectorTab.allCases) { tab in Text(tab.title).tag(tab) }
             }
             .pickerStyle(.segmented)
+            .neutralSegments()
             .labelsHidden()
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.md)
@@ -38,22 +39,27 @@ struct ChangesTab: View {
     var body: some View {
         @Bindable var store = store
         VStack(alignment: .leading, spacing: 0) {
+            // One quiet menu instead of two more segmented rows under the tabs.
             HStack(spacing: Spacing.sm) {
-                Picker("范围", selection: $store.diffScope) {
-                    ForEach(DiffScope.allCases) { Text($0.title).tag($0) }
+                Menu {
+                    Picker("比较", selection: $store.diffScope) {
+                        ForEach(DiffScope.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                    Picker("显示", selection: $store.changesVisual) {
+                        Label("可视化", systemImage: "square.grid.2x2").tag(true)
+                        Label("源码差异", systemImage: "chevron.left.forwardslash.chevron.right").tag(false)
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Text("\(store.diffScope.title) · \(store.changesVisual ? "可视化" : "源码差异")")
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .neutralControl()
                 .fixedSize()
+                .help("选择比较范围与显示方式")
                 Spacer(minLength: 0)
-                Picker("显示方式", selection: $store.changesVisual) {
-                    Image(systemName: "square.grid.2x2").tag(true).help("可视化")
-                    Image(systemName: "chevron.left.forwardslash.chevron.right").tag(false).help("源码")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .accessibilityLabel("显示方式")
             }
             .padding(.horizontal, Spacing.lg)
             .padding(.vertical, Spacing.sm)
@@ -328,7 +334,7 @@ struct MatchResultView: View {
             }
             if !result.skipped.isEmpty {
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text("需要内核数据，已跳过 \(result.skipped.count) 条（可能提前命中）：").font(.caption).foregroundStyle(.secondary)
+                    Text("以下 \(result.skipped.count) 条需要代理运行时才能判断（如 GEOIP、IP 规则），已跳过；实际可能更早命中：").font(.caption).foregroundStyle(.secondary)
                     ForEach(result.skipped.prefix(5), id: \.index) { skipped in
                         Text("第 \(skipped.index + 1) 条  \(skipped.rule)").font(Typography.codeSmall).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -349,7 +355,7 @@ struct ExitsTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.md) {
-                Text("地区为根据名称推断或由你声明，未实测。AI 只看到“出口 N（地区）”。").font(.caption).foregroundStyle(.secondary)
+                Text("地区根据名称推断或由你指定，未实测。使用 AI 时，名称会换成“策略组N（地区）”这样的标签。").font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 ExitList(targets: store.draft?.targets ?? [])
             }

@@ -17,7 +17,13 @@ struct SidebarView: View {
         List(selection: Binding(get: { store.showingStart ? nil : store.selectedID }, set: { if let id = $0 { store.select(id) } })) {
             Section {
                 Button { store.newImport() } label: {
-                    Label("新建导入", systemImage: "plus").foregroundStyle(Color.veerAccent).frame(maxWidth: .infinity, alignment: .leading)
+                    // Not a Label: sidebar lists recolor Label icons with the system accent.
+                    HStack(spacing: Spacing.sm) {
+                        Image(systemName: "plus")
+                        Text("新建导入")
+                    }
+                    .foregroundStyle(Color.veerAccent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
@@ -78,7 +84,7 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
             .help("设置（⌘,）")
-            Label("配置在本机解析 · AI 只收到匿名出口", systemImage: "lock.shield")
+            Label("配置在本机解析 · AI 只收到匿名结构", systemImage: "lock.shield")
                 .font(.caption).foregroundStyle(.secondary)
                 .labelStyle(.titleAndIcon)
                 .fixedSize(horizontal: false, vertical: true)

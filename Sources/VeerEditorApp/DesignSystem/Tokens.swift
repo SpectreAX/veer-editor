@@ -40,11 +40,19 @@ extension Color {
             ? NSColor(srgbRed: 0.24, green: 0.80, blue: 0.50, alpha: 1)
             : NSColor(srgbRed: 0.12, green: 0.62, blue: 0.33, alpha: 1)
     })
-    /// User message bubble; deeper than the accent in dark mode so white text stays readable.
+    /// User message bubble: a light wash of the accent with normal text, so the solid accent is
+    /// left for primary actions.
     static let userBubble = Color(nsColor: NSColor(name: "VeerBubble") { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 0.10, green: 0.47, blue: 0.27, alpha: 1)
-            : NSColor(srgbRed: 0.12, green: 0.62, blue: 0.33, alpha: 1)
+            ? NSColor(srgbRed: 0.16, green: 0.27, blue: 0.20, alpha: 1)
+            : NSColor(srgbRed: 0.88, green: 0.95, blue: 0.90, alpha: 1)
+    })
+    /// Selected segment of a segmented control: a neutral gray (white text stays above 4.5:1), so
+    /// the accent is not spent on navigation.
+    static let selectionNeutral = Color(nsColor: NSColor(name: "VeerSelectionNeutral") { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0.40, green: 0.40, blue: 0.42, alpha: 1)
+            : NSColor(srgbRed: 0.39, green: 0.39, blue: 0.40, alpha: 1)
     })
     static let statusSuccess = Color.veerAccent
     static let statusWarning = Color(nsColor: .systemOrange)

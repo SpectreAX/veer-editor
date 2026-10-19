@@ -33,26 +33,33 @@ struct Tag: View {
     }
 }
 
-/// Selectable suggestion pill.
+/// Selectable suggestion pill. Enabled pills carry a faint accent edge and react to the pointer,
+/// so they read as clickable; disabled ones (for example in older turns) fade out.
 struct Chip: View {
     let text: String
     var symbol: String?
     let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: Spacing.xs) {
-                if let symbol { Image(systemName: symbol).imageScale(.small) }
+                if let symbol { Image(systemName: symbol).imageScale(.small).foregroundStyle(isEnabled ? Color.veerAccent : Color.secondary) }
                 Text(text).lineLimit(1)
             }
             .font(.callout)
+            .foregroundStyle(isEnabled ? Color.primary : Color.secondary)
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.xs + Spacing.xxs)
-            .background(Color.surfaceRaised, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.separatorLine))
+            .background(hovering && isEnabled ? Color.veerAccent.opacity(0.12) : Color.surfaceRaised, in: Capsule())
+            .overlay(Capsule().strokeBorder(isEnabled ? Color.veerAccent.opacity(0.35) : Color.separatorLine))
+            .opacity(isEnabled ? 1 : 0.6)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Motion.quick, value: hovering)
     }
 }
 
@@ -199,4 +206,13 @@ struct ThinkingSlider: View {
             }
         }
     }
+}
+
+extension View {
+    /// The native, uncolored look for selection controls and secondary buttons. The accent is
+    /// kept for the one primary action of a view, so it stays easy to find.
+    func neutralControl() -> some View { tint(nil) }
+
+    /// Segmented controls: the selected segment in neutral gray instead of the accent.
+    func neutralSegments() -> some View { tint(Color.selectionNeutral) }
 }

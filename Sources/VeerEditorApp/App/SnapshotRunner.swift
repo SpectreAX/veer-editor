@@ -221,10 +221,11 @@ enum SnapshotRunner {
         store.sessionKey = "sk-snapshot"
         store.useAI = true
         await shot("28-model-choice")
+        NSApp.activate()
         store.showingModelPopover = true
-        await settle(1.0)
+        await settle(1.8)
         if let popover = NSApp.windows.first(where: { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }) {
-            capture(popover, to: directory.appendingPathComponent("28-model-popover-\(suffix).png"))
+            capture(popover, to: directory.appendingPathComponent("28-model-popover-\(suffix).png"), composite: true)
         }
         store.showingModelPopover = false
         await settle(0.4)
@@ -265,11 +266,20 @@ enum SnapshotRunner {
     /// Window-server image of one of our own windows (includes glass and materials). Looked up
     /// dynamically because the API is deprecated; capturing the app's own windows needs no
     /// screen-recording permission. Falls back to drawing the view hierarchy.
-    static func capture(_ window: NSWindow, to url: URL) {
+    /// `composite` captures the window together with what is behind it: translucent glass windows
+    /// (popovers) captured alone are composited over nothing and look gray in light mode.
+    static func capture(_ window: NSWindow, to url: URL, composite: Bool = false) {
         if let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") {
             let function = unsafeBitCast(symbol, to: WindowImageFunction.self)
-            // optionIncludingWindow = 1 << 3; boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3
-            if let image = function(.null, 1 << 3, UInt32(window.windowNumber), (1 << 0) | (1 << 3))?.takeRetainedValue() {
+            // optionOnScreenBelowWindow = 1 << 2, optionIncludingWindow = 1 << 3;
+            // boundsIgnoreFraming = 1 << 0, bestResolution = 1 << 3
+            var rect = CGRect.null
+            if composite, let screen = NSScreen.screens.first {
+                let frame = window.frame
+                rect = CGRect(x: frame.minX, y: screen.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+            }
+            let list: UInt32 = composite ? (1 << 2) | (1 << 3) : 1 << 3
+            if let image = function(rect, list, UInt32(window.windowNumber), (1 << 0) | (1 << 3))?.takeRetainedValue() {
                 let bitmap = NSBitmapImageRep(cgImage: image)
                 try? bitmap.representation(using: .png, properties: [:])?.write(to: url)
                 return

@@ -34,7 +34,7 @@ struct ExitReviewView: View {
                         Button("开始编辑") { store.confirmExits() }
                             .primaryAction()
                             .keyboardShortcut(.defaultAction)
-                        Button("稍后") { store.confirmExits() }
+                        Button("稍后") { store.confirmExits() }.neutralControl()
                             .buttonStyle(.bordered).controlSize(.large)
                         Spacer()
                         Text("之后可以在检查器的“出口”里修改").font(.caption).foregroundStyle(.secondary)
@@ -57,10 +57,11 @@ struct ExitReviewView: View {
             Text("确认出口").font(.title2.weight(.semibold))
             Text("识别到 \(draft.targets.count) 个出口" + (unknown > 0 ? " · \(unknown) 个未指定地区" : ""))
                 .font(.headline).foregroundStyle(.secondary)
-            Text("AI 只会看到“出口 N（地区）”这样的匿名标签。地区为根据名称推断或由你声明，未实测；未指定地区的出口只能通过名称或 @ 选择。")
+            Text("使用 AI 时，名称会换成“策略组N（地区）”“节点N（地区）”这样的标签。地区根据名称推断或由你指定，未实测；未指定地区的出口不会被“走日本”这类说法选中，只能用名称或 @ 选择。")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("\(draft.counts.nodes) 个节点 · \(draft.counts.groups) 个策略组 · \(draft.counts.rules) 条规则 · \(draft.counts.providers) 个 Provider")
+            Text(["\(draft.counts.nodes) 个节点", "\(draft.counts.groups) 个策略组", "\(draft.counts.rules) 条规则",
+                  draft.counts.providers > 0 ? "\(draft.counts.providers) 个规则集" : nil].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption).foregroundStyle(.tertiary)
         }
     }
@@ -93,6 +94,7 @@ struct ExitList: View {
                             }
                         }
                         .labelsHidden()
+                        .neutralControl()
                         .frame(width: 112)
                         .accessibilityLabel("\(target.name) 的地区")
                     }

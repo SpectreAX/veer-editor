@@ -554,6 +554,21 @@ final class EditorStore {
     /// back to that base makes it writable again. Nothing to store here.
     private func invalidatePending(in session: inout Session) {}
 
+    /// Accepts or clears every item of the latest pending proposal (menu command).
+    func setAllAccepted(_ accepted: Bool) {
+        guard let id = latestProposalTurnID, let turn = current?.turns.first(where: { $0.id == id }),
+              let proposal = turn.proposal, proposal.status == .pending else { return }
+        let all = Set(proposal.items.map(\.id))
+        let target = accepted ? all : []
+        guard target != proposal.accepted else { return }
+        rebuild(turnID: id, plan: proposal.plan, accepted: target)
+    }
+
+    var hasPendingProposal: Bool {
+        guard let id = latestProposalTurnID else { return false }
+        return current?.turns.first { $0.id == id }?.proposal?.status == .pending
+    }
+
     func setAccepted(_ accepted: Bool, item: Int, turnID: UUID) {
         guard let turn = current?.turns.first(where: { $0.id == turnID }), var proposal = turn.proposal, proposal.status == .pending else { return }
         if accepted { proposal.accepted.insert(item) } else { proposal.accepted.remove(item) }
@@ -671,6 +686,11 @@ final class EditorStore {
     }
 
     // MARK: Inspector
+
+    /// Whether the inspector already shows this turn's changes, so a "查看差异" link would do nothing.
+    func inspectorShowsChanges(of turnID: UUID) -> Bool {
+        inspectorPresented && inspectorTab == .changes && diffScope == .turn && (inspectedTurnID ?? latestProposalTurnID) == turnID
+    }
 
     func showDiff(for turnID: UUID) {
         inspectedTurnID = turnID

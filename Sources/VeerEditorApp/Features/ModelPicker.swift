@@ -15,12 +15,13 @@ struct ModelPopover: View {
                 Text("本地解析").tag(false)
             }
             .pickerStyle(.segmented)
+            .neutralSegments()
             .labelsHidden()
             if store.useAI && !store.aiConfigured {
                 HStack {
                     StatusBadge(kind: .warning, text: "还没有 \(settings.provider.title) 的 API Key", compact: true)
                     Spacer()
-                    Button("设置…", action: openSettings).buttonStyle(.link)
+                    Button("设置…", action: openSettings).buttonStyle(.link).foregroundStyle(Color.veerAccent)
                 }
             }
 
@@ -64,7 +65,7 @@ struct ModelPopover: View {
             .opacity(store.useAI ? 1 : 0.5)
 
             Divider()
-            Button("AI 设置…", action: openSettings).buttonStyle(.link)
+            Button("AI 设置…", action: openSettings).buttonStyle(.link).foregroundStyle(Color.veerAccent)
         }
         .padding(Spacing.lg)
         .frame(width: 300)

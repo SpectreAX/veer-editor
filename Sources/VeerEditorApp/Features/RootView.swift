@@ -75,7 +75,7 @@ struct DetailView: View {
                     .help("撤销上一次写入（⌘Z）").disabled(!store.canUndo)
                 Button { store.redo() } label: { Label("重做写入", systemImage: "arrow.uturn.forward") }
                     .help("重做（⇧⌘Z）").disabled(!store.canRedo)
-                Button { store.showingOverview = true } label: { Label("配置概览", systemImage: "chart.pie") }
+                Button { store.showingOverview = true } label: { Label("配置概览", systemImage: "list.bullet.rectangle") }
                     .help("查看配置解析结果（⇧⌘I）")
                 Button { store.requestExport() } label: { Label("导出", systemImage: "square.and.arrow.up") }
                     .help("导出完整配置副本（⌘E）")

@@ -110,6 +110,12 @@ struct EditorCommands: Commands {
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(store.current == nil)
             Divider()
+            Button("全部接受") { store.setAllAccepted(true) }
+                .keyboardShortcut("a", modifiers: [.command, .option])
+                .disabled(!store.hasPendingProposal || store.isRunning)
+            Button("全部取消勾选") { store.setAllAccepted(false) }
+                .keyboardShortcut("a", modifiers: [.command, .option, .shift])
+                .disabled(!store.hasPendingProposal || store.isRunning)
             Button("写入草稿") { store.write() }.keyboardShortcut(.return, modifiers: [.command, .shift])
             Button("停止生成") { store.cancel() }.keyboardShortcut(".").disabled(!store.isRunning)
         }

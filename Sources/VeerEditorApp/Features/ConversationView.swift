@@ -25,28 +25,59 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollEdgeEffectStyle(.soft, for: .bottom)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40
-            } action: { _, atBottom in
-                followsBottom = atBottom
+            .onScrollGeometryChange(for: BottomTracking.self) { geometry in
+                BottomTracking(offset: geometry.contentOffset.y, contentHeight: geometry.contentSize.height,
+                               containerHeight: geometry.containerSize.height,
+                               atBottom: geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40)
+            } action: { old, new in
+                if new.atBottom {
+                    followsBottom = true
+                } else if new.contentHeight != old.contentHeight || new.containerHeight != old.containerHeight {
+                    // Content grew (a step finished, a result arrived) or the window was resized:
+                    // keep the newest turn in view if we were following it.
+                    if followsBottom || old.atBottom {
+                        followsBottom = true
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                } else if new.offset < old.offset - 1 {
+                    // Moved up with the same content: the user is reading older turns. An animated
+                    // scroll toward the bottom only ever moves down, so it never lands here.
+                    followsBottom = false
+                }
             }
             .onChange(of: store.conversationToken) {
                 if followsBottom { withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
-            .onChange(of: store.selectedID) { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: turns.count) { old, new in
+                // A new turn is always something the user just asked for: show it.
+                guard new > old else { return }
+                followsBottom = true
+                withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: store.selectedID) { followsBottom = true; proxy.scrollTo("bottom", anchor: .bottom) }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: Spacing.sm) {
-                    if !followsBottom && !turns.isEmpty {
-                        Button { withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) } } label: {
-                            Label("回到最新", systemImage: "arrow.down")
+                ComposerView()
+                    .frame(maxWidth: Metrics.readingWidth)
+                    // Floats just above the composer without taking layout space: if it changed the
+                    // inset, its own appearance would move the view off the bottom and keep it shown.
+                    .overlay(alignment: .top) {
+                        if !followsBottom && !turns.isEmpty {
+                            Button {
+                                followsBottom = true
+                                withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) }
+                            } label: {
+                                Label("回到最新", systemImage: "arrow.down")
+                            }
+                            .buttonStyle(.glass)
+                            .controlSize(.small)
+                            .neutralControl()
+                            .help("滚动到最新一轮")
+                            .fixedSize()
+                            .offset(y: -(Spacing.xxl + Spacing.xs))
+                            .transition(.opacity)
                         }
-                        .buttonStyle(.glass)
-                        .transition(.opacity)
                     }
-                    ComposerView()
-                        .frame(maxWidth: Metrics.readingWidth)
-                }
                 .padding(.horizontal, Spacing.xl)
                 .padding(.bottom, Spacing.md)
                 .padding(.top, Spacing.sm)
@@ -80,6 +111,13 @@ struct ConversationView: View {
         }
         .padding(.top, Spacing.xxl)
     }
+}
+
+private struct BottomTracking: Equatable {
+    var offset: CGFloat
+    var contentHeight: CGFloat
+    var containerHeight: CGFloat
+    var atBottom: Bool
 }
 
 /// Wrapping horizontal layout for chips.

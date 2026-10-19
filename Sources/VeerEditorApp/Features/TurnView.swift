@@ -29,7 +29,7 @@ struct UserBubble: View {
             Spacer(minLength: Spacing.xxxl * 2)
             Text(text)
                 .textSelection(.enabled)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, Spacing.md + Spacing.xxs)
                 .padding(.vertical, Spacing.sm)
                 .background(Color.userBubble, in: RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
@@ -139,15 +139,16 @@ struct StepsView: View {
             } else if !turn.steps.isEmpty {
                 Button { withAnimation(Motion.standard) { expanded.toggle() } } label: {
                     HStack(spacing: Spacing.xs) {
-                        Image(systemName: summaryIcon.0).foregroundStyle(summaryIcon.1)
+                        if let icon = summaryIcon { Image(systemName: icon.0).foregroundStyle(icon.1) }
                         Text(summary)
                         Image(systemName: "chevron.right").imageScale(.small).rotationEffect(.degrees(expanded ? 90 : 0))
                     }
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.tertiary)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(summary)，\(expanded ? "已展开" : "已折叠")")
+                .accessibilityLabel("\(accessibleSummary)，\(expanded ? "已展开" : "已折叠")")
+                .help("查看 Veer 处理这条指令的步骤")
                 if expanded {
                     rows.padding(.leading, Spacing.lg)
                     Text("步骤是 Veer 的真实任务状态，不是模型的推理过程。")
@@ -157,18 +158,23 @@ struct StepsView: View {
         }
     }
 
-    private var summaryIcon: (String, Color) {
+    /// Only problems get an icon; a finished turn's meta line stays quiet.
+    private var summaryIcon: (String, Color)? {
         if turn.steps.contains(where: { $0.state == .failed }) { return ("xmark.circle", .statusFailure) }
         if turn.steps.contains(where: { $0.state == .cancelled }) { return ("minus.circle", .secondary) }
-        return ("checkmark", .veerAccent)
+        return nil
     }
 
     private var summary: String {
         let failed = turn.steps.contains { $0.state == .failed }
         let cancelled = turn.steps.contains { $0.state == .cancelled }
-        let head = failed ? "处理失败" : cancelled ? "已停止" : "处理完成"
         let time = turn.duration.map { String(format: " · %.1f 秒", $0) } ?? ""
-        return "\(head) · \(turn.steps.filter { $0.state == .done }.count) 步\(time) · \(turn.mode.label)"
+        let head = failed ? "处理失败 · " : cancelled ? "已停止 · " : ""
+        return "\(head)\(turn.mode.label)\(time)"
+    }
+
+    private var accessibleSummary: String {
+        "\(summary)，完成 \(turn.steps.filter { $0.state == .done }.count) 步"
     }
 
     private var rows: some View {
@@ -262,7 +268,7 @@ struct ProposalView: View {
                     .primaryAction()
                     .disabled(!store.canWrite(turn))
                     .help("写入草稿（⇧⌘↩）。原始文件不会改变，导出后才生成新文件。")
-                Button("放弃") { store.discard(turnID: turn.id) }
+                Button("放弃") { store.discard(turnID: turn.id) }.neutralControl()
                     .buttonStyle(.bordered).controlSize(.large)
                 if proposal.validation.status == .failed {
                     Text("校验未通过，不能写入").font(.callout).foregroundStyle(Color.statusFailure)
@@ -283,7 +289,10 @@ struct ProposalView: View {
                 StatusBadge(kind: .warning, text: "已失效 · 草稿已变化，请重新生成")
                 Button("重新生成") { store.retry(turnID: turn.id) }.buttonStyle(.link).foregroundStyle(Color.veerAccent)
             }
-            Button("查看差异") { store.showDiff(for: turn.id) }.buttonStyle(.link).foregroundStyle(Color.veerAccent)
+            if !store.inspectorShowsChanges(of: turn.id) {
+                Button("查看差异") { store.showDiff(for: turn.id) }.buttonStyle(.link).foregroundStyle(Color.veerAccent)
+                    .help("在右侧检查器中查看这一轮的变更")
+            }
             if turn.sentPayload != nil {
                 Button("查看发送给 AI 的内容") { store.payloadTurnID = turn.id }.buttonStyle(.link).foregroundStyle(Color.veerAccent)
             }
@@ -343,12 +352,13 @@ struct ChangeRow: View {
             }
             Text(item.subject).fontWeight(.medium)
             if item.kind == .group {
-                Tag(text: item.group?.type ?? "select")
+                Tag(text: ProfileAnalysis.groupTypeTitle(item.group?.type ?? "select"))
             } else if item.kind == .removeRule {
                 Text("删除规则").foregroundStyle(.secondary)
             } else {
                 Image(systemName: "arrow.right").imageScale(.small).foregroundStyle(.secondary)
                 Text(targetText).lineLimit(1).truncationMode(.middle)
+                    .help("括号里是出口所在地区：根据名称推断或由你指定，未实测。可在检查器“出口”中更正。")
             }
         }
     }
@@ -358,7 +368,7 @@ struct ChangeRow: View {
         if name == "DIRECT" { return "直连" }
         if name == "REJECT" { return "拦截" }
         let region = store.regions[name] ?? .unknown
-        return region == .unknown ? name : "\(name)（\(region.displayName)·推断）"
+        return region == .unknown ? name : "\(name)（\(region.displayName)）"
     }
 
     private var detail: String {
@@ -449,6 +459,7 @@ struct PayloadSheet: View {
                         Text("与原始配置对照").tag(true)
                     }
                     .pickerStyle(.segmented)
+            .neutralSegments()
                     .labelsHidden()
                     .fixedSize()
                 }
@@ -463,7 +474,7 @@ struct PayloadSheet: View {
                 Label("你在指令里亲自输入的内容会原样发送（出口名除外），请勿填写密钥", systemImage: "exclamationmark.triangle")
             }
             .font(.caption).foregroundStyle(.secondary)
-            HStack { Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.defaultAction) }
+            HStack { Spacer(); Button("完成") { dismiss() }.keyboardShortcut(.cancelAction).neutralControl() }
         }
         .padding(Spacing.xl)
         .frame(width: store.payloadComparing ? 920 : 640, height: 680)

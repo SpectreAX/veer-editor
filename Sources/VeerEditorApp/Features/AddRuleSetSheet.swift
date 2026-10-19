@@ -40,13 +40,19 @@ struct AddRuleSetSheet: View {
         return query.isEmpty ? names : names.filter { $0.lowercased().contains(query) && $0.lowercased() != query }
     }
 
+    private var visibleSuggestions: [String] {
+        let typed = name.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !typed.isEmpty else { return Array(suggestions.prefix(8)) }
+        return Array(suggestions.filter { $0.lowercased().contains(typed) && $0.lowercased() != typed }.prefix(12))
+    }
+
     var body: some View {
         let targets = store.draft?.targets ?? []
         let regions = store.regions
         VStack(alignment: .leading, spacing: Spacing.lg) {
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("添加在线规则集").font(.title3.weight(.semibold))
-                Text("Veer 会添加 rule-provider 和一条 RULE-SET 规则，检查地址并用 Mihomo 校验，再交给你审阅后写入草稿。")
+                Text("把一个在线规则集里的网站交给你选的出口。Veer 会先确认地址存在、用 Mihomo 校验，再交给你审阅后写入草稿。")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Picker("方式", selection: $mode) {
@@ -54,6 +60,7 @@ struct AddRuleSetSheet: View {
                 Text("粘贴规则集地址").tag(1)
             }
             .pickerStyle(.segmented)
+            .neutralSegments()
             .labelsHidden()
             .fixedSize()
 
@@ -62,12 +69,14 @@ struct AddRuleSetSheet: View {
                     Picker("来源", selection: $source) {
                         ForEach(Self.sources, id: \.id) { Text($0.title).tag($0.id) }
                     }
+                    .neutralControl()
                     TextField("名称", text: $name, prompt: Text("例如 youtube"))
-                    if !suggestions.isEmpty {
-                        LabeledContent("已确认存在") {
+                    if !visibleSuggestions.isEmpty {
+                        LabeledContent("常用名称") {
                             FlowLayout(spacing: Spacing.xs) {
-                                ForEach(suggestions.prefix(24), id: \.self) { suggestion in
-                                    Button(suggestion) { name = suggestion }.buttonStyle(.bordered).controlSize(.small)
+                                // A short list until the user types; then the names that match.
+                                ForEach(visibleSuggestions, id: \.self) { suggestion in
+                                    Button(suggestion) { name = suggestion }.buttonStyle(.bordered).controlSize(.small).neutralControl()
                                 }
                             }
                         }
@@ -79,6 +88,7 @@ struct AddRuleSetSheet: View {
                         Text("IP 段（ipcidr）").tag("ipcidr")
                         Text("混合规则（classical）").tag("classical")
                     }
+                    .neutralControl()
                     Text("geosite / geoip 路径与 .list 文件的类型会自动判断；.yaml 文件按这里的选择。").font(.caption).foregroundStyle(.secondary)
                 }
                 Picker("出口", selection: $targetID) {
@@ -87,6 +97,7 @@ struct AddRuleSetSheet: View {
                         Text(exitLabel(target, region: regions[target.name])).tag(target.id)
                     }
                 }
+                .neutralControl()
                 LabeledContent("预览") {
                     switch preview {
                     case .none:
@@ -104,9 +115,9 @@ struct AddRuleSetSheet: View {
             .formStyle(.grouped)
 
             HStack {
-                Text("名称不在列表里也可以填写，地址不存在（404）时会被拒绝。").font(.caption).foregroundStyle(.secondary)
+                Text("列表里的名称都已确认可用；其他名称也可以填写，地址不存在时会提示你。").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction).neutralControl()
                 Button("生成修改") {
                     guard let reference else { return }
                     store.addRuleSet(reference, targetID: targetID)

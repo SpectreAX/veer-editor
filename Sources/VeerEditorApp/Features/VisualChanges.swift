@@ -78,8 +78,11 @@ struct GroupCard: View {
         VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                 Image(systemName: "square.stack.3d.up").foregroundStyle(Color.veerAccent)
-                Text(name).font(.headline).lineLimit(1).truncationMode(.middle)
-                Text("\(ProfileAnalysis.mihomoType(type).uppercased()) · \(members.count)").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    Text(name).font(.headline).lineLimit(1).truncationMode(.middle)
+                    // Its own line, so a narrow inspector never wraps it beside the name.
+                    Text("\(ProfileAnalysis.groupTypeTitle(type)) · \(members.count) 个成员").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
                 if let badge { Tag(text: badge, tint: .veerAccent) }
                 Spacer(minLength: 0)
                 if let edit {
@@ -104,10 +107,10 @@ struct GroupCard: View {
     }
 
     private func detail(for member: String) -> String {
-        if member == "DIRECT" { return "direct" }
-        if member == "REJECT" || member == "REJECT-DROP" { return "reject" }
-        if let group = analysis?.groups.first(where: { $0.name == member }) { return ProfileAnalysis.mihomoType(group.type) }
-        if let type = analysis?.proxyTypes[member] { return type.lowercased() }
+        if member == "DIRECT" { return "直连" }
+        if member == "REJECT" || member == "REJECT-DROP" { return "拦截" }
+        if let group = analysis?.groups.first(where: { $0.name == member }) { return ProfileAnalysis.groupTypeName(group.type) }
+        if let type = analysis?.proxyTypes[member] { return type }
         return "未知"
     }
 

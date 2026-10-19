@@ -74,6 +74,20 @@ public struct ProfileAnalysis: Sendable, Equatable {
                                  "socks5": "SOCKS5", "http": "HTTP", "snell": "Snell", "ssh": "SSH", "mieru": "Mieru", "direct": "DIRECT",
                                  "reject": "REJECT", "dns": "DNS"]
     static let groupTypeLabels = ["select": "Select", "url-test": "URLTest", "fallback": "Fallback", "load-balance": "LoadBalance", "relay": "Relay"]
+    static let groupTypeNames = ["select": "手动选择", "url-test": "自动测速", "fallback": "故障转移", "load-balance": "负载均衡", "relay": "链式代理"]
+
+    /// What a group type does, in plain words ("自动测速"), for any spelling (URLTest, url-test).
+    public static func groupTypeName(_ type: String) -> String {
+        let raw = mihomoType(type)
+        return groupTypeNames[raw] ?? raw
+    }
+
+    /// The one way the app writes a group type: "自动测速 · url-test".
+    public static func groupTypeTitle(_ type: String) -> String {
+        let raw = mihomoType(type)
+        guard let name = groupTypeNames[raw] else { return raw }
+        return "\(name) · \(raw)"
+    }
 
     public static func analyze(_ text: String) -> ProfileAnalysis? {
         guard let root = (try? compose(yaml: text))??.mapping else { return nil }

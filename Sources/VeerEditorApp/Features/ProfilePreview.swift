@@ -87,7 +87,7 @@ struct ProfilePreviewView: View {
                 if pending.link != nil {
                     Button("刷新") { store.refreshPendingImport() }.help("重新下载订阅并解析")
                 }
-                Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction)
+                Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction).neutralControl()
                 Button("导入并开始编辑") { store.confirmPendingImport() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
@@ -157,13 +157,14 @@ struct SessionOverviewSheet: View {
                     Text("导入时").tag(true)
                 }
                 .pickerStyle(.segmented)
+            .neutralSegments()
                 .labelsHidden()
                 .fixedSize()
                 if store.current?.hasUnexportedChanges == true && !showOriginal {
                     Text("包含未导出的修改").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("关闭") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("关闭") { dismiss() }.keyboardShortcut(.cancelAction).neutralControl()
             }
             .controlSize(.large)
             .padding(.horizontal, Spacing.xl)
@@ -222,7 +223,8 @@ struct StatTiles: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: Spacing.md)], spacing: Spacing.md) {
             ForEach(tiles, id: \.1) { value, label in
                 VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(value).font(.title2.weight(.semibold)).foregroundStyle(Color.veerAccent).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(value).font(.title2.weight(.semibold)).foregroundStyle(value == "0" ? Color.secondary : Color.primary)
+                        .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
                     Text(label).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -407,7 +409,9 @@ struct CompositionCard: View {
         PreviewCard(title: "构成") {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 StackedBar(title: "规则类型", segments: Segment.make(analysis.ruleTypes))
-                StackedBar(title: "策略组类型", segments: Segment.make(analysis.groupTypes))
+                StackedBar(title: "策略组类型", segments: Segment.make(analysis.groupTypes.map {
+                    ProfileAnalysis.Count(label: ProfileAnalysis.groupTypeTitle($0.label), count: $0.count)
+                }))
                 StackedBar(title: "代理来源", segments: Segment.make(sources))
                 if !analysis.providers.isEmpty {
                     Text("代理集按个数计，节点数在导入后由内核拉取。").font(.caption).foregroundStyle(.tertiary)
@@ -429,6 +433,7 @@ struct GroupPreviewCard: View {
                 Text("规则流向").tag(1)
             }
             .pickerStyle(.segmented)
+            .neutralSegments()
             .labelsHidden()
             .fixedSize()
             if tab == 0 { structure } else { flows }
@@ -440,7 +445,7 @@ struct GroupPreviewCard: View {
         return LazyVStack(alignment: .leading, spacing: Spacing.lg) {
             if analysis.groups.isEmpty { Text("没有策略组").font(.callout).foregroundStyle(.secondary) }
             ForEach(types, id: \.self) { type in
-                Text("\(type) 策略组").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Text("\(ProfileAnalysis.groupTypeTitle(type)) 策略组").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(analysis.groups.filter { $0.type == type }) { group in
                     GroupRow(group: group, expanded: expanded.contains(group.name)) {
                         if expanded.contains(group.name) { expanded.remove(group.name) } else { expanded.insert(group.name) }
@@ -479,7 +484,7 @@ struct GroupRow: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
                 Text(group.name).font(.body.weight(.semibold)).lineLimit(1).truncationMode(.middle)
-                Text(group.type).font(.caption).foregroundStyle(.secondary)
+                Text(ProfileAnalysis.groupTypeName(group.type)).font(.caption).foregroundStyle(.secondary)
                 Text("\(group.referenceCount) 个引用").font(.caption).foregroundStyle(.tertiary)
                 if group.includesAll { Tag(text: "包含全部节点") }
             }

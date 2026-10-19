@@ -23,14 +23,15 @@ struct StartView: View {
                     }
                     .primaryAction()
                     .help("文件、订阅链接或粘贴内容（⌘O）")
-                    Button("试用示例配置") { store.loadSample() }
+                    Button("试用示例配置") { store.loadSample() }.neutralControl()
                         .buttonStyle(.bordered)
                 }
                 Text("支持文件、订阅链接和粘贴内容，格式自动识别。也可以把文件拖到这里。").font(.callout).foregroundStyle(.tertiary)
+                if !store.sessions.isEmpty { recentSessions }
             }
             .padding(Spacing.xxl)
             Spacer(minLength: Spacing.xl)
-            Label("配置在本机解析。AI 只收到匿名出口与你的指令，不会收到节点地址、密码或订阅链接。", systemImage: "lock.shield")
+            Label("配置在本机解析。AI 只收到匿名化的配置结构与你的指令，不会收到真实名称、节点地址、密码或订阅链接。", systemImage: "lock.shield")
                 .font(.caption).foregroundStyle(.secondary)
                 .padding(.bottom, Spacing.xl)
                 .padding(.horizontal, Spacing.xl)
@@ -57,6 +58,37 @@ struct StartView: View {
             return true
         }
         .animation(Motion.quick, value: dropTargeted)
+    }
+}
+
+extension StartView {
+    /// Lets someone who came back here continue where they left off without hunting the sidebar.
+    var recentSessions: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("继续最近的会话").font(.callout.weight(.medium)).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                ForEach(store.sessions.sorted { $0.updatedAt > $1.updatedAt }.prefix(3)) { session in
+                    Button { store.select(session.id) } label: {
+                        HStack(spacing: Spacing.sm) {
+                            Image(systemName: "doc.text").foregroundStyle(.secondary)
+                            Text(session.title).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: Spacing.md)
+                            Text(session.updatedAt.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").imageScale(.small).foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.sm)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("打开 \(session.title)")
+                    if session.id != store.sessions.sorted(by: { $0.updatedAt > $1.updatedAt }).prefix(3).last?.id { Divider() }
+                }
+            }
+            .background(Color.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.medium))
+            .overlay(RoundedRectangle(cornerRadius: Radius.medium).strokeBorder(Color.separatorLine))
+        }
+        .frame(maxWidth: 360)
     }
 }
 

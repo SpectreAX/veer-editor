@@ -36,6 +36,7 @@ struct AISettingsPane: View {
                 })) {
                     ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
                 }
+                .neutralControl()
                 TextField("地址", text: $store.settings.baseURL, prompt: Text(store.settings.provider.baseURL.isEmpty ? "https://…/v1" : store.settings.provider.baseURL))
                 if store.settings.provider.needsKey { keyRow }
                 LabeledContent("连接") {
@@ -52,6 +53,7 @@ struct AISettingsPane: View {
                 })) {
                     ForEach(store.settings.models, id: \.self) { Text($0).tag($0) }
                 }
+                .neutralControl()
                 ThinkingLevelControl(settings: $store.settings)
                 LabeledContent("其他模型") {
                     HStack {
@@ -215,7 +217,7 @@ struct PrivacySettingsPane: View {
             Section("从不发送") {
                 Label("真实的节点、策略组和代理集名称", systemImage: "xmark")
                 Label("节点地址、端口、密码、UUID、协议与传输参数", systemImage: "xmark")
-                Label("订阅链接、规则集与 Provider 地址", systemImage: "xmark")
+                Label("订阅链接、规则集与代理集地址", systemImage: "xmark")
                 Label("DNS、TUN、端口、控制器等其他配置", systemImage: "xmark")
             }
             Section {
@@ -276,8 +278,13 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
             Text("导出完整配置副本").font(.headline)
             VStack(alignment: .leading, spacing: Spacing.xs) {
-                Text("相对原始配置：+\(stats.added) 行 / −\(stats.removed) 行" + (stats.providers > 0 ? "，新增 \(stats.providers) 个规则集" : ""))
-                Text("除 rules 与新增的 rule-providers 外，其余内容与原文逐字节一致。").font(.callout).foregroundStyle(.secondary)
+                if stats.added == 0 && stats.removed == 0 {
+                    Text("与原始配置相同")
+                    Text("还没有写入任何修改，导出的会是一份相同的副本。").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    Text("相对原始配置：+\(stats.added) 行 / −\(stats.removed) 行" + (stats.providers > 0 ? "，新增 \(stats.providers) 个规则集" : ""))
+                    Text("只改动分流规则、新增的规则集和新增的策略组，其余内容与原文逐字节一致。").font(.callout).foregroundStyle(.secondary)
+                }
             }
             Toggle("导出前进行内核校验", isOn: $validate).toggleStyle(.checkbox)
             Label("不会覆盖导入的原始文件，也不会应用到正在运行的代理。", systemImage: "info.circle")
@@ -285,7 +292,7 @@ struct ExportSheet: View {
             if let error { StatusBadge(kind: .failure, text: error).fixedSize(horizontal: false, vertical: true).textSelection(.enabled) }
             HStack {
                 Spacer()
-                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction).neutralControl()
                 Button("导出…", action: chooseLocation).keyboardShortcut(.defaultAction).disabled(exporting)
             }
         }

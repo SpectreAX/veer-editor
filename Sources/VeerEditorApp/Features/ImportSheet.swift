@@ -84,9 +84,9 @@ struct ImportInputView: View {
             }
             .font(.caption)
             HStack {
-                Button { store.chooseImportFile() } label: { Label("选择文件…", systemImage: "folder") }
+                Button { store.chooseImportFile() } label: { Label("选择文件…", systemImage: "folder") }.neutralControl()
                 Spacer()
-                Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction)
+                Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction).neutralControl()
                 Button("解析") { store.submitImportInput() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
@@ -108,7 +108,7 @@ struct ImportProgressView: View {
         VStack(spacing: Spacing.lg) {
             ProgressView().controlSize(.large)
             Text(message).foregroundStyle(.secondary)
-            Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction)
+            Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction).neutralControl()
         }
         .padding(Spacing.xxl)
         .frame(width: 600, height: 280)
@@ -125,7 +125,7 @@ struct ImportFailedView: View {
             StatusBadge(kind: .failure, text: message).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             HStack {
                 Spacer()
-                Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction)
+                Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction).neutralControl()
                 Button("返回修改") { store.importStage = .input }.keyboardShortcut(.defaultAction)
             }
         }
