@@ -4,10 +4,12 @@ set -eu
 cd "${0:A:h}/.."
 # The macOS 27 Command Line Tools SDK needs Xcode's SwiftUI macro plugin; 26.5 does not.
 export SDKROOT="${SDKROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk}"
-validator="${VEER_MIHOMO_BIN:-$PWD/../../prototype/ai-editor/.cache/mihomo}"
+# The validator is not committed: build Mihomo (https://github.com/MetaCubeX/mihomo) and place it
+# at vendor/mihomo, or point VEER_MIHOMO_BIN at an existing binary.
+validator="${VEER_MIHOMO_BIN:-$PWD/vendor/mihomo}"
 if [[ ! -x "$validator" ]]; then
   print -u2 "未找到 Mihomo 校验器：$validator"
-  print -u2 "请在 go_core/third_party/mihomo 构建，或设置 VEER_MIHOMO_BIN。"
+  print -u2 "请从 MetaCubeX/mihomo 源码构建，放到 vendor/mihomo，或设置 VEER_MIHOMO_BIN。"
   exit 1
 fi
 arch="$(uname -m)"
@@ -20,7 +22,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin" "$app/Contents/Reso
 cp "$bin_dir/VeerAIEditor" "$app/Contents/MacOS/VeerAIEditor"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 cp "$validator" "$app/Contents/Resources/bin/mihomo"
-cp ../../go_core/third_party/mihomo/LICENSE "$app/Contents/Resources/licenses/mihomo-LICENSE"
+cp third_party/mihomo/LICENSE "$app/Contents/Resources/licenses/mihomo-LICENSE"
 cp .build/checkouts/Yams/LICENSE "$app/Contents/Resources/licenses/Yams-LICENSE"
 codesign --force --sign - "$app/Contents/Resources/bin/mihomo"
 codesign --force --sign - "$app"

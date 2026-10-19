@@ -1,8 +1,8 @@
 # Veer AI Editor 系统提示（由 OpenClash 提示改写）
 
 日期：2026-10-17  
-代码：[`native/macos-editor/Sources/VeerCore/SystemPrompt.swift`](../native/macos-editor/Sources/VeerCore/SystemPrompt.swift)  
-测试：[`SystemPromptTests.swift`](../native/macos-editor/Tests/VeerCoreTests/SystemPromptTests.swift)
+代码：[`Sources/VeerCore/SystemPrompt.swift`](../Sources/VeerCore/SystemPrompt.swift)  
+测试：[`SystemPromptTests.swift`](../Tests/VeerCoreTests/SystemPromptTests.swift)
 
 来源是一份给 OpenClash 覆写脚本用的提示（生成 `ruby_merge_hash` 规则集定义 + 自定义规则，分两处粘贴）。Veer 是跨平台 Mihomo 客户端，自己修改配置，所以只保留它的规则集知识和安全纪律，换掉输出方式。
 

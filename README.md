@@ -1,10 +1,11 @@
-# Veer AI Editor（macOS 原生重建）
+# Veer AI Editor（macOS 原生）
 
 用一句话修改 Mihomo 分流规则，每一处改动先审阅，再决定是否写入草稿，最后导出完整配置副本。
 
-- 规格：[`docs/VEER_AI_EDITOR_SPEC_2026-10-17.md`](../../docs/VEER_AI_EDITOR_SPEC_2026-10-17.md)
-- UI 蓝图：Open Design 项目 `veer-ai-editor-rebuild-20261017`，副本在 [`prototype/editor-rebuild/`](../../prototype/editor-rebuild/)
-- 与旧版 `native/macos` 的区别：一个进程、纯 Swift。没有 Node 运行时，不监听任何端口；唯一的外部可执行文件是内置的 Mihomo 校验器（`mihomo -t`）。
+- 规格：[`docs/VEER_AI_EDITOR_SPEC_2026-10-17.md`](docs/VEER_AI_EDITOR_SPEC_2026-10-17.md)，AI 系统提示：[`docs/VEER_AI_EDITOR_SYSTEM_PROMPT_2026-10-17.md`](docs/VEER_AI_EDITOR_SYSTEM_PROMPT_2026-10-17.md)
+- UI 蓝图：Open Design 项目 `veer-ai-editor-rebuild-20261017`，副本在 [`prototype/`](prototype/)
+- 一个进程、纯 Swift。没有 Node 运行时，不监听任何端口；唯一的外部可执行文件是内置的 Mihomo 校验器（`mihomo -t`）。
+- 2026-10-19 起从 Veer Android 仓库（原 `native/macos-editor/`）独立出来，提交历史随之保留。
 
 ## 构建与运行
 
@@ -20,7 +21,7 @@ open "dist/Veer AI Editor.app"
 
 脚本默认使用 `MacOSX26.5.sdk`：macOS 27 SDK 把 SwiftUI 的 `@State` 改成了宏，宏插件只随完整 Xcode 提供，只装 Command Line Tools 时无法编译。装有 Xcode 时可用 `SDKROOT=… zsh scripts/build-app.sh` 覆盖。
 
-校验器默认取 `prototype/ai-editor/.cache/mihomo`（由 `go_core/third_party/mihomo` 构建的 Veer mirror），可用 `VEER_MIHOMO_BIN` 指定。
+校验器不随仓库提交：从 [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo) 源码构建当前架构的二进制，放在 `vendor/mihomo`（已忽略），或用 `VEER_MIHOMO_BIN` 指定。Mihomo 以 GPL-3.0 发布，许可证随应用打包（[`third_party/mihomo/LICENSE`](third_party/mihomo/LICENSE)）。
 
 ## 测试
 
@@ -31,7 +32,7 @@ SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk swift test
 用真实 Mihomo 二进制跑内核校验测试：
 
 ```bash
-VEER_MIHOMO_BIN="$PWD/../../prototype/ai-editor/.cache/mihomo" SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk swift test --filter RealValidatorTests
+VEER_MIHOMO_BIN="$PWD/vendor/mihomo" SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk swift test --filter RealValidatorTests
 ```
 
 ## 截图验证

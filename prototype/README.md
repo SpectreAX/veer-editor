@@ -1,7 +1,7 @@
 # Veer AI Editor Rebuild：Open Design 原型
 
-原生重建（`native/macos-editor`）的 UI 蓝图。由 Open Design 0.24.1（本机 Claude Code 作为设计代理）根据
-[`docs/VEER_AI_EDITOR_OPENDESIGN_BRIEF_2026-10-17.md`](../../docs/VEER_AI_EDITOR_OPENDESIGN_BRIEF_2026-10-17.md) 生成。
+原生编辑器的 UI 蓝图。由 Open Design 0.24.1（本机 Claude Code 作为设计代理）根据
+[`docs/VEER_AI_EDITOR_OPENDESIGN_BRIEF_2026-10-17.md`](../docs/VEER_AI_EDITOR_OPENDESIGN_BRIEF_2026-10-17.md) 生成。
 
 - Open Design 项目 ID：`veer-ai-editor-rebuild-20261017`
 - 文件：`veer-editor.html`（单文件，约 1,490 行，所有数据模拟，无网络请求）

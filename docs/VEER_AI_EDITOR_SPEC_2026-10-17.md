@@ -2,7 +2,7 @@
 
 > 日期：2026-10-17  
 > 状态：v1 规格，作为原型设计与实现的唯一依据  
-> 代码位置：`native/macos-editor/`（全新代码库，不复用 `native/macos` 与 `prototype/ai-editor` 的代码）  
+> 代码位置：仓库根目录（2026-10-19 起为独立仓库 veer-editor；此前位于 Veer 仓库的 `native/macos-editor/`，下文的历史记录保留原路径）  
 > UI 原型：Open Design 项目 `Veer · AI Editor Rebuild`（见 §14）
 
 ---
@@ -418,7 +418,7 @@ native/macos-editor/
 ### 已完成
 
 - `native/macos-editor`：VeerCore（引擎）+ VeerEditorApp（SwiftUI），`scripts/build-app.sh` 生成 ad-hoc 签名的 `dist/Veer AI Editor.app`。
-- Open Design 原型：`prototype/editor-rebuild/veer-editor.html`。
+- Open Design 原型：`prototype/veer-editor.html`。
 
 ### 与规格的偏差
 
