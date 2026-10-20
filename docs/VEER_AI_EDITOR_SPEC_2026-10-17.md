@@ -582,3 +582,11 @@ native/macos-editor/
   - 自动化测试覆盖：协议解码、查询过滤、目录检索与缓存、四种服务的请求与解析、搜索 → 计划的完整流程、关闭时的处理、两次上限。
   - 联网测试确认 GitHub 目录可读，DuckDuckGo 对 “Japan Airlines” 返回官方网站 www.jal.co.jp。
 - 未验证：真实 AI 服务是否按提示使用搜索。
+
+### 2026-10-20：搜索改用 Wikidata，目录匹配更严格
+
+- **问题：** 实测“日本航空相关域名走直连”时，DuckDuckGo 即时答案对 “Japan Airlines official website domain”“jal” 都没有结果；Tavily 能找到 jal.co.jp、jal.com。规则集目录还给出了无关的 `hainanairlines`、`line`（“line”只是 “airlines” 的一部分）。模型随后追问时，界面又附上了与问题无关的出口按钮。
+- **改动：**
+  - **无需 Key 的默认来源改为 Wikidata 官方网站：** 去掉查询中的“official website / 官网 / 域名”等词，用实体搜索（中文名称用中文搜索）找到条目，再读取官方网站属性（P856）。只取最相关的两个带官网的条目，结果附条目说明。实测“日本航空 官网”“Japan Airlines official website domain”都得到 www.jal.co.jp，“中国国际航空”得到 airchina.com / airchina.com.cn。DuckDuckGo 已移除，之前保存的 DuckDuckGo 选择自动改为 Wikidata。需要更全的网页结果时用 Tavily。
+  - **规则集目录只按完整名称匹配：** 名称等于查询中的词、或以该词开头；整条查询拼成的名称可以作为子串匹配，例如 “Air China” 匹配 airchina。不再把名称中的一段当作命中。
+  - **追问按钮：** 模型的追问只有涉及出口、策略组、节点或地区时才附出口按钮；询问域名等其他内容时不附按钮。

@@ -2,13 +2,13 @@ import Foundation
 
 /// Where Veer searches the web when the AI asks. The rule-set catalog is always searched.
 public enum SearchProvider: String, Sendable, Codable, CaseIterable, Identifiable {
-    case duckDuckGo, tavily, brave, searxng, catalogOnly
+    case wikidata, tavily, brave, searxng, catalogOnly
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .duckDuckGo: "DuckDuckGo 即时答案（无需 Key）"
+        case .wikidata: "Wikidata 官方网站（无需 Key）"
         case .tavily: "Tavily"
         case .brave: "Brave Search"
         case .searxng: "SearXNG（自建）"
@@ -25,13 +25,23 @@ public enum SearchProvider: String, Sendable, Codable, CaseIterable, Identifiabl
 /// Search preferences, stored with the app's settings.
 public struct SearchSettings: Sendable, Codable, Equatable {
     public var enabled = true
-    public var provider: SearchProvider = .duckDuckGo
+    public var provider: SearchProvider = .wikidata
     public var searxngURL = ""
 
-    public init(enabled: Bool = true, provider: SearchProvider = .duckDuckGo, searxngURL: String = "") {
+    public init(enabled: Bool = true, provider: SearchProvider = .wikidata, searxngURL: String = "") {
         self.enabled = enabled
         self.provider = provider
         self.searxngURL = searxngURL
+    }
+
+    enum CodingKeys: String, CodingKey { case enabled, provider, searxngURL }
+
+    /// A provider that no longer exists (DuckDuckGo, removed 2026-10-20) becomes the default.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        provider = (try? container.decode(SearchProvider.self, forKey: .provider)) ?? .wikidata
+        searxngURL = try container.decodeIfPresent(String.self, forKey: .searxngURL) ?? ""
     }
 }
 
@@ -226,10 +236,10 @@ public actor RuleSetIndex {
             let bare = name.split(separator: "@").first.map(String.init) ?? name
             var score = 0
             for token in tokens {
+                // Whole names only: a word inside another name ("line" in "airlines") is noise.
                 if bare == token { score = max(score, 100) }
-                else if bare.hasPrefix(token) || bare.hasPrefix(token + "-") { score = max(score, 60) }
-                else if token.count >= 4 && bare.contains(token) { score = max(score, 30) }
-                else if bare.count >= 4 && token.contains(bare) { score = max(score, 20) }
+                else if bare.hasPrefix(token + "-") || (token.count >= 4 && bare.hasPrefix(token)) { score = max(score, 60) }
+                else if token == joined && token.count >= 6 && bare.contains(token) { score = max(score, 30) }
             }
             if score > 0 { scored.append((name, score - (name.contains("@") ? 5 : 0))) }
         }
@@ -258,7 +268,7 @@ public struct WebSearchService: RuleSearching {
                 do {
                     record.web = try await web(query, config: config)
                     if record.web.isEmpty {
-                        record.note = config.provider == .duckDuckGo ? "DuckDuckGo 没有这条查询的即时答案。" : "没有结果。"
+                        record.note = config.provider == .wikidata ? "Wikidata 中没有找到带官方网站的条目；需要更全的网页结果时可在设置中改用 Tavily。" : "没有结果。"
                     }
                 } catch let failure as AIFailure {
                     record.note = "搜索失败：\(failure.message)"
@@ -272,6 +282,7 @@ public struct WebSearchService: RuleSearching {
     }
 
     func web(_ query: String, config: SearchConfig) async throws -> [SearchRecord.WebResult] {
+        if config.provider == .wikidata { return try await wikidata(query) }
         let request = try Self.request(query, config: config)
         let (data, response) = try await transport.send(request)
         switch response.statusCode {
@@ -283,14 +294,65 @@ public struct WebSearchService: RuleSearching {
         return Array(try Self.parse(data, provider: config.provider).prefix(5))
     }
 
+    /// Words that describe what is wanted rather than who: dropped before an entity search.
+    static let fillerWords = #"(?i)\b(official|website|web\s*site|homepage|domains?|site|url|address|links?)\b|官方网站|官网|官方|网站|網站|域名|相关|相關|网址|網址"#
+
+    /// Wikidata: find the entity for the name, then its official website (P856). Precise for
+    /// companies and services, works for Chinese names, needs no key.
+    func wikidata(_ query: String) async throws -> [SearchRecord.WebResult] {
+        let name = query.replacingOccurrences(of: Self.fillerWords, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return [] }
+        let language = name.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) || (0x3040...0x30FF).contains($0.value) } ? "zh" : "en"
+        func get(_ items: [URLQueryItem]) async throws -> [String: Any] {
+            var components = URLComponents(string: "https://www.wikidata.org/w/api.php")!
+            components.queryItems = [.init(name: "format", value: "json")] + items
+            var request = URLRequest(url: components.url!, timeoutInterval: 15)
+            request.setValue("Veer AI Editor", forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await transport.send(request)
+            guard (200..<300).contains(response.statusCode), let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw AIFailure.invalidResponse("Wikidata 暂时不可用（HTTP \(response.statusCode)）。")
+            }
+            return object
+        }
+        let found = try await get([.init(name: "action", value: "wbsearchentities"), .init(name: "search", value: name), .init(name: "language", value: language),
+                                   .init(name: "uselang", value: language), .init(name: "type", value: "item"), .init(name: "limit", value: "5")])
+        let ids = (found["search"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        guard !ids.isEmpty else { return [] }
+        let entities = try await get([.init(name: "action", value: "wbgetentities"), .init(name: "ids", value: ids.joined(separator: "|")),
+                                      .init(name: "props", value: "claims|labels|descriptions"), .init(name: "languages", value: "zh|en")])
+        return Self.parseWikidata(entities, order: ids)
+    }
+
+    static func parseWikidata(_ object: [String: Any], order: [String]) -> [SearchRecord.WebResult] {
+        let entities = object["entities"] as? [String: [String: Any]] ?? [:]
+        var results: [SearchRecord.WebResult] = []
+        var withSites = 0
+        for id in order {
+            // The best two matches with a website; later ones are usually unrelated (incidents, namesakes).
+            guard withSites < 2, let entity = entities[id] else { continue }
+            func text(_ key: String) -> String? {
+                let values = entity[key] as? [String: [String: Any]]
+                return (values?["zh"]?["value"] ?? values?["en"]?["value"]) as? String
+            }
+            let sites = ((entity["claims"] as? [String: Any])?["P856"] as? [[String: Any]] ?? []).compactMap {
+                (($0["mainsnak"] as? [String: Any])?["datavalue"] as? [String: Any])?["value"] as? String
+            }
+            let label = text("labels") ?? id
+            let description = text("descriptions") ?? ""
+            if sites.contains(where: { $0.hasPrefix("http") }) { withSites += 1 }
+            for site in sites.prefix(3) where site.hasPrefix("http") {
+                results.append(.init(title: "\(label) 官方网站", url: site, snippet: description.isEmpty ? "Wikidata \(id)" : "\(description)（Wikidata \(id)）"))
+            }
+        }
+        return results
+    }
+
     static func request(_ query: String, config: SearchConfig) throws -> URLRequest {
         var request: URLRequest
         switch config.provider {
-        case .duckDuckGo:
-            var components = URLComponents(string: "https://api.duckduckgo.com/")!
-            components.queryItems = [.init(name: "q", value: query), .init(name: "format", value: "json"),
-                                     .init(name: "no_html", value: "1"), .init(name: "skip_disambig", value: "1"), .init(name: "t", value: "veer")]
-            request = URLRequest(url: components.url!, timeoutInterval: 15)
+        case .wikidata:
+            throw AIFailure.invalidResponse("Wikidata 通过 wikidata(_:) 查询。")
         case .tavily:
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有设置 Tavily 的 API Key。") }
             request = URLRequest(url: URL(string: "https://api.tavily.com/search")!, timeoutInterval: 20)
@@ -318,15 +380,6 @@ public struct WebSearchService: RuleSearching {
         return request
     }
 
-    /// The address in an infobox "Website" value: "jal.co.jp", "https://www.jal.com/" or a wiki
-    /// link such as "[www.jal.co.jp/ar/en/ jal.co.jp/ar]".
-    static func websiteLink(_ value: String) -> String? {
-        let first = value.trimmingCharacters(in: CharacterSet(charactersIn: "[] ")).split(separator: " ").first.map(String.init) ?? ""
-        let link = first.hasPrefix("http") ? first : "https://\(first)"
-        guard let url = URL(string: link), let host = url.host, host.contains(".") else { return nil }
-        return link
-    }
-
     static func parse(_ data: Data, provider: SearchProvider) throws -> [SearchRecord.WebResult] {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AIFailure.invalidResponse("搜索服务返回了无法读取的结果。")
@@ -339,26 +392,8 @@ public struct WebSearchService: RuleSearching {
             return .init(title: clip(title).isEmpty ? url : clip(title), url: url, snippet: clip(snippet))
         }
         switch provider {
-        case .duckDuckGo:
-            var results: [SearchRecord.WebResult] = []
-            let heading = object["Heading"] as? String
-            for item in (object["Infobox"] as? [String: Any])?["content"] as? [[String: Any]] ?? [] {
-                guard let label = item["label"] as? String, label.localizedCaseInsensitiveContains("website"),
-                      let value = item["value"] as? String else { continue }
-                if let link = Self.websiteLink(value), let found = result("\(heading ?? "") 官方网站", link, value) { results.append(found) }
-            }
-            for item in object["Results"] as? [[String: Any]] ?? [] {
-                if let found = result(item["Text"] as? String, item["FirstURL"] as? String, item["Text"] as? String) { results.append(found) }
-            }
-            if let found = result(heading, object["AbstractURL"] as? String, object["AbstractText"] as? String), !(object["AbstractText"] as? String ?? "").isEmpty {
-                results.append(found)
-            }
-            for item in (object["RelatedTopics"] as? [[String: Any]] ?? []).prefix(3) {
-                if let found = result(item["Text"] as? String, item["FirstURL"] as? String, item["Text"] as? String) { results.append(found) }
-            }
-            // DuckDuckGo's own topic pages say nothing about the site itself.
-            var seen = Set<String>()
-            return results.filter { URL(string: $0.url)?.host?.hasSuffix("duckduckgo.com") != true && seen.insert($0.url).inserted }
+        case .wikidata:
+            return []
         case .tavily, .searxng:
             return (object["results"] as? [[String: Any]] ?? []).compactMap { result($0["title"] as? String, $0["url"] as? String, $0["content"] as? String) }
         case .brave:

@@ -222,10 +222,11 @@ enum SnapshotRunner {
             var live = Turn(prompt: "Google 走台湾，Netflix 走新加坡", mode: .ai(model: "deepseek-v4-pro · 深度思考 · 高"),
                             steps: EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: $0.offset == 0 ? .running : .waiting) })
             live.searches = [SearchRecord(query: "Japan Airlines official website", web: [
-                .init(title: "Japan Airlines 官方网站", url: "https://www.jal.co.jp/ar/en/", snippet: "Japan Airlines, the flag carrier of Japan."),
-                .init(title: "Japan Airlines", url: "https://en.wikipedia.org/wiki/Japan_Airlines", snippet: "Japan Airlines Co., Ltd. (JAL)…"),
-            ], source: "DuckDuckGo 即时答案（无需 Key）"), SearchRecord(query: "Air China", geosite: ["airchina", "airchina@!cn"], source: "DuckDuckGo 即时答案（无需 Key）",
-                                                                     note: "DuckDuckGo 没有这条查询的即时答案。")]
+                .init(title: "日本航空 官方网站", url: "https://www.jal.co.jp/jp/", snippet: "flag-carrier airline of Japan（Wikidata Q213140）"),
+                .init(title: "日本航空 官方网站", url: "https://www.jal.co.jp/jp/en/", snippet: "flag-carrier airline of Japan（Wikidata Q213140）"),
+            ], source: "Wikidata 官方网站（无需 Key）"), SearchRecord(query: "Air China", geosite: ["airchina", "airchina@!cn"], web: [
+                .init(title: "中国国际航空 官方网站", url: "http://www.airchina.com.cn", snippet: "flag carrier of the People's Republic of China（Wikidata Q51747）"),
+            ], source: "Wikidata 官方网站（无需 Key）")]
             live.reasoning = "用户想让 Google 的流量走台湾，Netflix 走新加坡。\n配置里有“台湾自动”和“新加坡节点”两个地区策略组，可以直接使用。\nGoogle 对应 MetaCubeX geosite 的 google 规则集，Netflix 对应 netflix 规则集。\n两条规则都应插在 MATCH 之前……"
             session.turns.append(live)
             store.current = session

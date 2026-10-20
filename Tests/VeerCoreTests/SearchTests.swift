@@ -71,6 +71,8 @@ struct RuleSetIndexTests {
         #expect(await index.lookup("JAL official website").geosite == ["jal-group"])
         #expect(await index.lookup("Netflix").geoip == ["netflix"])
         #expect(await index.lookup("航空").geosite.isEmpty)
+        // Words inside other names are not matches ("line" in "airlines").
+        #expect(await index.lookup("Japan Airlines official website domain").geosite.isEmpty)
         #expect(transport.requests.count == 4)   // fetched once
         #expect(FileManager.default.fileExists(atPath: cache.path))
         // A new index reads the cache instead of the network.
@@ -83,17 +85,24 @@ struct RuleSetIndexTests {
 }
 
 struct WebSearchProviderTests {
-    @Test func duckDuckGoInstantAnswers() throws {
-        let body = #"{"Heading":"Japan Airlines","AbstractText":"Japan Airlines is the flag carrier of Japan.","AbstractURL":"https://en.wikipedia.org/wiki/Japan_Airlines","Infobox":{"content":[{"label":"Website","value":"jal.co.jp"}]},"Results":[{"FirstURL":"https://www.jal.com/","Text":"Official site"}],"RelatedTopics":[]}"#
-        let results = try WebSearchService.parse(Data(body.utf8), provider: .duckDuckGo)
-        #expect(results.map(\.url) == ["https://jal.co.jp", "https://www.jal.com/", "https://en.wikipedia.org/wiki/Japan_Airlines"])
-        #expect(WebSearchService.websiteLink("[www.jal.co.jp/ar/en/ jal.co.jp/ar]") == "https://www.jal.co.jp/ar/en/")
-        #expect(WebSearchService.websiteLink("https://www.jal.com/") == "https://www.jal.com/")
-        #expect(WebSearchService.websiteLink("n/a") == nil)
-        let topics = try WebSearchService.parse(Data(#"{"RelatedTopics":[{"FirstURL":"https://duckduckgo.com/c/Japan_Airlines","Text":"Category"}]}"#.utf8), provider: .duckDuckGo)
-        #expect(topics.isEmpty)
-        let request = try WebSearchService.request("Japan Airlines", config: .init(provider: .duckDuckGo))
-        #expect(request.url?.absoluteString.hasPrefix("https://api.duckduckgo.com/?q=Japan%20Airlines&format=json") == true)
+    @Test func wikidataFindsOfficialWebsites() async throws {
+        let search = #"{"search":[{"id":"Q213140"},{"id":"Q6164968"}]}"#
+        let entities = #"{"entities":{"Q213140":{"labels":{"zh":{"value":"日本航空"},"en":{"value":"Japan Airlines"}},"descriptions":{"en":{"value":"flag-carrier airline of Japan"}},"claims":{"P856":[{"mainsnak":{"datavalue":{"value":"https://www.jal.co.jp/jp/"}}}]}},"Q6164968":{"labels":{"en":{"value":"Flight 46E"}},"claims":{}}}}"#
+        let transport = RoutedTransport([("wbsearchentities", 200, search), ("wbgetentities", 200, entities)])
+        let results = try await WebSearchService(transport: transport, index: RuleSetIndex(transport: RoutedTransport([]), cacheURL: nil)).wikidata("日本航空 官方网站 域名")
+        #expect(results == [.init(title: "日本航空 官方网站", url: "https://www.jal.co.jp/jp/", snippet: "flag-carrier airline of Japan（Wikidata Q213140）")])
+        // Filler words are dropped and Chinese names search in Chinese.
+        let first = try #require(transport.requests.first?.url?.absoluteString)
+        #expect(first.contains("search=%E6%97%A5%E6%9C%AC%E8%88%AA%E7%A9%BA&") && first.contains("language=zh"))
+        _ = try await WebSearchService(transport: transport, index: RuleSetIndex(transport: RoutedTransport([]), cacheURL: nil)).wikidata("Japan Airlines official website domain")
+        #expect(transport.requests[2].url?.absoluteString.contains("search=Japan%20Airlines&language=en") == true)
+    }
+
+    @Test func oldDuckDuckGoSettingsFallBackToWikidata() throws {
+        let old = try JSONDecoder().decode(SearchSettings.self, from: Data(#"{"enabled":true,"provider":"duckDuckGo","searxngURL":""}"#.utf8))
+        #expect(old.provider == .wikidata && old.enabled)
+        let tavily = try JSONDecoder().decode(SearchSettings.self, from: Data(#"{"enabled":false,"provider":"tavily","searxngURL":""}"#.utf8))
+        #expect(tavily.provider == .tavily && !tavily.enabled)
     }
 
     @Test func keyedAndSelfHostedProviders() throws {
@@ -140,7 +149,7 @@ struct SearchLoopTests {
     func request(search: Bool) throws -> EditorEngine.Request {
         let doc = try ConfigDocument.parse(SampleConfig.text)
         var request = EditorEngine.Request(prompt: "日本航空相关域名走直连", draft: doc, regions: [:], useAI: true, settings: AISettings(), apiKey: "k")
-        request.search = search ? SearchConfig(provider: .duckDuckGo) : nil
+        request.search = search ? SearchConfig(provider: .wikidata) : nil
         return request
     }
 
@@ -175,7 +184,9 @@ struct SearchLoopTests {
             #"{"understanding":"缺少域名","clarification":"请提供日本航空的域名"}"#,
         ])
         let output = try await engine.run(try request(search: false)) { _ in }
-        guard case .clarification = output else { Issue.record("expected a clarification"); return }
+        guard case .clarification(_, let options) = output else { Issue.record("expected a clarification"); return }
+        // A question about domains gets no exit buttons.
+        #expect(options.isEmpty)
         let followUp = (transport.requests[1]["messages"] as? [[String: String]])?.last?["content"] ?? ""
         #expect(followUp.contains("联网搜索未开启"))
         #expect((transport.requests[0]["messages"] as? [[String: String]])?.first?["content"]?.contains("# 联网搜索") == false)
@@ -191,17 +202,19 @@ struct SearchLoopTests {
     }
 }
 
-/// Real network: the GitHub catalog and DuckDuckGo. Runs only with VEER_NETWORK_TESTS=1.
+/// Real network: the GitHub catalog and Wikidata. Runs only with VEER_NETWORK_TESTS=1.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["VEER_NETWORK_TESTS"] != nil))
 struct RealSearchTests {
-    @Test func catalogAndDuckDuckGoAnswer() async throws {
+    @Test func catalogAndWikidataAnswer() async throws {
         let index = RuleSetIndex(cacheURL: nil)
         let snapshot = try await index.fetch()
         print("REAL catalog geosite=\(snapshot.geosite.count) geoip=\(snapshot.geoip.count)")
         #expect(snapshot.geosite.count > 1500 && snapshot.geosite.contains("netflix") && snapshot.geosite.contains("airchina"))
-        let records = await WebSearchService(index: index).search(["Japan Airlines"], config: .init(provider: .duckDuckGo))
-        for result in records.first?.web ?? [] { print("REAL ddg \(result.title) — \(result.url)") }
-        print("REAL ddg note \(records.first?.note ?? "-")")
-        #expect(records.first?.web.contains { $0.url.contains("jal") } == true)
+        for query in ["Japan Airlines official website domain", "日本航空 官网", "中国国际航空"] {
+            let records = await WebSearchService(index: index).search([query], config: .init(provider: .wikidata))
+            for result in records.first?.web ?? [] { print("REAL wikidata \(query) → \(result.title) — \(result.url)") }
+            print("REAL catalog \(query) → \(records.first?.geosite ?? [])")
+            #expect(records.first?.web.isEmpty == false, "\(query)")
+        }
     }
 }

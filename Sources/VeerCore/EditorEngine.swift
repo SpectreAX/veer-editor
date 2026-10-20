@@ -144,7 +144,9 @@ public struct EditorEngine: Sendable {
     func handle(_ reply: AssistantReply, request: Request, progress: @Sendable (Progress) async -> Void) async throws -> Output {
         switch reply {
         case let .clarification(question, options):
-            return .clarification(question, options: options.isEmpty ? Self.suggestedExits(for: request) : options)
+            // Exit buttons only help when the question is about where traffic should go.
+            let aboutExits = question.matches(#"出口|策略组|节点|走哪|哪个地区|哪一个地区"#)
+            return .clarification(question, options: options.isEmpty && aboutExits ? Self.suggestedExits(for: request) : options)
         case let .outOfScope(message):
             return .outOfScope(message)
         case let .plan(plan):
