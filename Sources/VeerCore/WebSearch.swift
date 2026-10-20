@@ -2,13 +2,14 @@ import Foundation
 
 /// Where Veer searches the web when the AI asks. The rule-set catalog is always searched.
 public enum SearchProvider: String, Sendable, Codable, CaseIterable, Identifiable {
-    case wikidata, tavily, brave, searxng, catalogOnly
+    case wikidata, deepSeek, tavily, brave, searxng, catalogOnly
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
         case .wikidata: "Wikidata 官方网站（无需 Key）"
+        case .deepSeek: "DeepSeek 搜索（用 DeepSeek 的 Key，按次计费）"
         case .tavily: "Tavily"
         case .brave: "Brave Search"
         case .searxng: "SearXNG（自建）"
@@ -17,6 +18,8 @@ public enum SearchProvider: String, Sendable, Codable, CaseIterable, Identifiabl
     }
 
     public var needsKey: Bool { self == .tavily || self == .brave }
+    /// Uses the key of this AI service instead of a search key of its own.
+    public var aiServiceKey: AIProvider? { self == .deepSeek ? .deepSeek : nil }
     public var needsURL: Bool { self == .searxng }
     /// Account under which the key is kept (separate from AI service keys).
     public var keyAccount: String { "search.\(rawValue)" }
@@ -288,6 +291,7 @@ public struct WebSearchService: RuleSearching {
         switch response.statusCode {
         case 200..<300: break
         case 401, 403: throw AIFailure.invalidResponse("搜索服务拒绝了请求，请检查 Key。")
+        case 402: throw AIFailure.invalidResponse("搜索服务账户余额不足。")
         case 429: throw AIFailure.invalidResponse("搜索服务限流或额度不足。")
         default: throw AIFailure.invalidResponse("搜索服务返回 HTTP \(response.statusCode)。")
         }
@@ -353,6 +357,14 @@ public struct WebSearchService: RuleSearching {
         switch config.provider {
         case .wikidata:
             throw AIFailure.invalidResponse("Wikidata 通过 wikidata(_:) 查询。")
+        case .deepSeek:
+            // https://api-docs.deepseek.com/guides/search/ — only the query is sent, not the user's instruction.
+            guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有保存 DeepSeek 的 API Key（在上方 AI 服务中选择 DeepSeek 并保存）。") }
+            request = URLRequest(url: URL(string: "https://api.deepseek.com/v1/tools/search")!, timeoutInterval: 20)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": String(query.prefix(128)), "count": 8, "need_content": false])
         case .tavily:
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有设置 Tavily 的 API Key。") }
             request = URLRequest(url: URL(string: "https://api.tavily.com/search")!, timeoutInterval: 20)
@@ -394,6 +406,16 @@ public struct WebSearchService: RuleSearching {
         switch provider {
         case .wikidata:
             return []
+        case .deepSeek:
+            // Best first by rerank_score; summary is the longer, model-oriented text.
+            let items = (object["results"] as? [[String: Any]] ?? []).sorted {
+                ($0["rerank_score"] as? Double ?? 0) > ($1["rerank_score"] as? Double ?? 0)
+            }
+            return items.compactMap { item in
+                let site = (item["site_name"] as? String).map { "（\($0)）" } ?? ""
+                return result((item["title"] as? String).map { $0 + site }, item["url"] as? String,
+                              (item["summary"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? item["snippet"] as? String)
+            }
         case .tavily, .searxng:
             return (object["results"] as? [[String: Any]] ?? []).compactMap { result($0["title"] as? String, $0["url"] as? String, $0["content"] as? String) }
         case .brave:

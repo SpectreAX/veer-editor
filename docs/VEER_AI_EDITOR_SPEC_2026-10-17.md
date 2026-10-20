@@ -590,3 +590,15 @@ native/macos-editor/
   - **无需 Key 的默认来源改为 Wikidata 官方网站：** 去掉查询中的“official website / 官网 / 域名”等词，用实体搜索（中文名称用中文搜索）找到条目，再读取官方网站属性（P856）。只取最相关的两个带官网的条目，结果附条目说明。实测“日本航空 官网”“Japan Airlines official website domain”都得到 www.jal.co.jp，“中国国际航空”得到 airchina.com / airchina.com.cn。DuckDuckGo 已移除，之前保存的 DuckDuckGo 选择自动改为 Wikidata。需要更全的网页结果时用 Tavily。
   - **规则集目录只按完整名称匹配：** 名称等于查询中的词、或以该词开头；整条查询拼成的名称可以作为子串匹配，例如 “Air China” 匹配 airchina。不再把名称中的一段当作命中。
   - **追问按钮：** 模型的追问只有涉及出口、策略组、节点或地区时才附出口按钮；询问域名等其他内容时不附按钮。
+
+### 2026-10-20：DeepSeek 搜索
+
+- **来源：** DeepSeek 已提供搜索 API（https://api-docs.deepseek.com/guides/search/，`POST https://api.deepseek.com/v1/tools/search`）。设置 → AI →“联网搜索”的搜索服务中新增“DeepSeek 搜索”。
+- **Key：** 直接使用 AI 服务中保存的 DeepSeek API Key，包括仅本次运行有效的 Key，不再单独保存一份。设置页显示“使用 DeepSeek 的 API Key”；还没有 Key 时提示先在上方选择 DeepSeek 并保存。
+- **请求：** 只发送搜索词（最多 128 个字符），请求 8 条结果、不要正文。不发送可选的 `ori_question`，因为它会带上用户的原始指令。
+- **结果：** 按 `rerank_score` 从高到低排序，标题附网站名，摘要优先用 `summary`，没有时用 `snippet`。与其他服务一样，每条查询最多保留 5 条结果。
+- **费用：** 按次计费（0.75 美元 / 千次，2026-11-01 起），设置页注明。余额不足（402）时显示“搜索服务账户余额不足。”
+- **测试：**
+  - 自动化测试覆盖：请求地址与 Key、请求体中没有 `ori_question`、查询截断、缺少 Key 时报错、按 `rerank_score` 排序与摘要回退、应用层借用 DeepSeek 的 Key（关闭搜索时不提供配置）。
+  - 联网测试（需要 `VEER_NETWORK_TESTS=1` 和 `VEER_DEEPSEEK_KEY`）：“Japan Airlines official website” 在 2.4 秒内返回 www.jal.co.jp 的多个页面。
+- 截图：`artifacts/2026-10-17/28-settings-deepseek-search-light.png` / `-dark.png`。

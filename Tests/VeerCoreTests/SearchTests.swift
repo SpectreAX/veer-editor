@@ -98,6 +98,21 @@ struct WebSearchProviderTests {
         #expect(transport.requests[2].url?.absoluteString.contains("search=Japan%20Airlines&language=en") == true)
     }
 
+    @Test func deepSeekSearchUsesTheToolsEndpoint() throws {
+        let request = try WebSearchService.request(String(repeating: "很长的查询", count: 40), config: .init(provider: .deepSeek, apiKey: "sk-ds"))
+        #expect(request.url?.absoluteString == "https://api.deepseek.com/v1/tools/search" && request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer sk-ds")
+        let body = try #require(try JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
+        #expect((body["query"] as? String)?.count == 128 && body["need_content"] as? Bool == false)
+        // Only the query: never the user's own instruction.
+        #expect(body["ori_question"] == nil)
+        #expect(throws: AIFailure.self) { try WebSearchService.request("jal", config: .init(provider: .deepSeek)) }
+        let results = try WebSearchService.parse(Data(#"{"results":[{"rerank_score":1.1,"title":"Wiki","url":"https://en.wikipedia.org/wiki/JAL","snippet":"s","summary":"","site_name":"Wikipedia"},{"rerank_score":2.6,"title":"JAL","url":"https://www.jal.co.jp/","snippet":"short","summary":"Japan Airlines official site","site_name":"JAL"}]}"#.utf8), provider: .deepSeek)
+        #expect(results.map(\.url) == ["https://www.jal.co.jp/", "https://en.wikipedia.org/wiki/JAL"])
+        #expect(results.first?.title == "JAL（JAL）" && results.first?.snippet == "Japan Airlines official site" && results.last?.snippet == "s")
+        #expect(SearchProvider.deepSeek.aiServiceKey == .deepSeek && !SearchProvider.deepSeek.needsKey)
+    }
+
     @Test func oldDuckDuckGoSettingsFallBackToWikidata() throws {
         let old = try JSONDecoder().decode(SearchSettings.self, from: Data(#"{"enabled":true,"provider":"duckDuckGo","searxngURL":""}"#.utf8))
         #expect(old.provider == .wikidata && old.enabled)
@@ -216,5 +231,15 @@ struct RealSearchTests {
             print("REAL catalog \(query) → \(records.first?.geosite ?? [])")
             #expect(records.first?.web.isEmpty == false, "\(query)")
         }
+    }
+
+    /// Billed per search, so it also needs `VEER_DEEPSEEK_KEY`.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["VEER_DEEPSEEK_KEY"] != nil))
+    func deepSeekAnswers() async throws {
+        let key = ProcessInfo.processInfo.environment["VEER_DEEPSEEK_KEY"]
+        let records = await WebSearchService(index: RuleSetIndex(cacheURL: nil)).search(["Japan Airlines official website"], config: .init(provider: .deepSeek, apiKey: key))
+        for result in records.first?.web ?? [] { print("REAL deepseek → \(result.title) — \(result.url)") }
+        print("REAL deepseek note: \(records.first?.note ?? "-")")
+        #expect(records.first?.web.contains { $0.url.contains("jal.co") || $0.url.contains("jal.com") } == true)
     }
 }

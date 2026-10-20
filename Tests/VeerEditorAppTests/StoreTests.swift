@@ -137,6 +137,15 @@ struct StoreTests {
         #expect(store.apiKey == "sk-ant-session" && store.settings.modelLabel == "claude-haiku-5-5 · 深度思考 · 低")
     }
 
+    @Test func deepSeekSearchBorrowsTheAIServiceKey() throws {
+        let store = makeStore()
+        try store.keyStore.save("sk-deepseek", for: "deepSeek")
+        store.searchSettings = SearchSettings(enabled: true, provider: .deepSeek)
+        #expect(store.searchConfig == SearchConfig(provider: .deepSeek, apiKey: "sk-deepseek"))
+        store.searchSettings.enabled = false
+        #expect(store.searchConfig == nil)
+    }
+
     @Test func exportRefusesTheOriginalFileAndWritesTheDraft() async throws {
         let store = makeStore()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

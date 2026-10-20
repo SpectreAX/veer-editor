@@ -82,6 +82,11 @@ final class EditorStore {
         get { sessionKeys[settings.provider] }
         set { sessionKeys[settings.provider] = newValue }
     }
+
+    /// Whether a key is available for `service`, saved or held for this session only.
+    func hasKey(for service: AIProvider) -> Bool {
+        sessionKeys[service] != nil || keyStore.read(for: service.rawValue) != nil
+    }
     /// Whether the current service has a saved key.
     var keySaved: Bool
 
@@ -823,8 +828,13 @@ final class EditorStore {
     var searchConfig: SearchConfig? {
         guard searchSettings.enabled else { return nil }
         let provider = searchSettings.provider
-        return SearchConfig(provider: provider, apiKey: provider.needsKey ? keyStore.read(for: provider.keyAccount) : nil,
-                            baseURL: provider.needsURL ? searchSettings.searxngURL : nil)
+        let key: String?
+        if let service = provider.aiServiceKey {
+            key = sessionKeys[service] ?? keyStore.read(for: service.rawValue)
+        } else {
+            key = provider.needsKey ? keyStore.read(for: provider.keyAccount) : nil
+        }
+        return SearchConfig(provider: provider, apiKey: key, baseURL: provider.needsURL ? searchSettings.searxngURL : nil)
     }
 
     /// The address snapshot runs use to show an AI failure.

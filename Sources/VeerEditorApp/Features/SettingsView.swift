@@ -183,6 +183,17 @@ struct SearchSettingsSection: View {
                 TextField("SearXNG 地址", text: $store.searchSettings.searxngURL, prompt: Text("http://127.0.0.1:8888"))
                     .disabled(!store.searchSettings.enabled)
             }
+            if let service = store.searchSettings.provider.aiServiceKey {
+                let hasKey = store.hasKey(for: service)
+                LabeledContent("搜索 API Key") {
+                    if hasKey {
+                        StatusBadge(kind: .success, text: "使用 \(service.title) 的 API Key", compact: true)
+                    } else {
+                        Text("先在上方选择 \(service.title) 并保存 API Key").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text("每次搜索按 DeepSeek 的价格计费（0.75 美元 / 千次，2026-11-01 起），只发送搜索词。").font(.caption).foregroundStyle(.secondary)
+            }
             if store.searchSettings.provider.needsKey {
                 if keySaved {
                     LabeledContent("搜索 API Key") {
