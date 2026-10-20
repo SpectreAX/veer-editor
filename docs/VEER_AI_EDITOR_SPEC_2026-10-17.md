@@ -594,7 +594,7 @@ native/macos-editor/
 ### 2026-10-20：DeepSeek 搜索
 
 - **来源：** DeepSeek 已提供搜索 API（https://api-docs.deepseek.com/guides/search/，`POST https://api.deepseek.com/v1/tools/search`）。设置 → AI →“联网搜索”的搜索服务中新增“DeepSeek 搜索”。
-- **Key：** 直接使用 AI 服务中保存的 DeepSeek API Key，包括仅本次运行有效的 Key，不再单独保存一份。设置页显示“使用 DeepSeek 的 API Key”；还没有 Key 时提示先在上方选择 DeepSeek 并保存。
+- **Key：** 直接使用 AI 服务中保存的 DeepSeek API Key，包括仅本次运行有效的 Key，不再单独保存一份。设置页显示“使用「DeepSeek」的 API Key”；还没有 Key 时提示先在上方选择 DeepSeek 并保存。
 - **请求：** 只发送搜索词（最多 128 个字符），请求 8 条结果、不要正文。不发送可选的 `ori_question`，因为它会带上用户的原始指令。
 - **结果：** 按 `rerank_score` 从高到低排序，标题附网站名，摘要优先用 `summary`，没有时用 `snippet`。与其他服务一样，每条查询最多保留 5 条结果。
 - **费用：** 按次计费（0.75 美元 / 千次，2026-11-01 起），设置页注明。余额不足（402）时显示“搜索服务账户余额不足。”
@@ -602,3 +602,23 @@ native/macos-editor/
   - 自动化测试覆盖：请求地址与 Key、请求体中没有 `ori_question`、查询截断、缺少 Key 时报错、按 `rerank_score` 排序与摘要回退、应用层借用 DeepSeek 的 Key（关闭搜索时不提供配置）。
   - 联网测试（需要 `VEER_NETWORK_TESTS=1` 和 `VEER_DEEPSEEK_KEY`）：“Japan Airlines official website” 在 2.4 秒内返回 www.jal.co.jp 的多个页面。
 - 截图：`artifacts/2026-10-17/28-settings-deepseek-search-light.png` / `-dark.png`。
+
+### 2026-10-20：智谱搜索与 Perplexity 搜索
+
+- **智谱搜索：**
+  - **接口：** `POST https://open.bigmodel.cn/api/paas/v4/web_search`（https://docs.bigmodel.cn/api-reference/工具-api/网络搜索）。
+  - **Key：** 直接用 AI 服务中保存的智谱 GLM Key，做法与 DeepSeek 搜索相同。
+  - **请求：** 用最便宜的基础引擎 `search_std`（0.01 元 / 次），不让服务改写搜索词（`search_intent: false`）。搜索词最多 70 个字符，请求 8 条结果、摘要级内容。
+  - **结果：** 标题附网站名，摘要用 `content`。错误码 1703（没有结果）视为空结果，1701 显示限流，其他错误显示服务给出的说明。
+- **Perplexity 搜索：**
+  - **接口：** `POST https://api.perplexity.ai/search`（https://docs.perplexity.ai/api-reference/search-post）。
+  - **Key：** 和 Tavily、Brave 一样单独保存在本机 Key 文件（`search.perplexity`），输入框提示 `pplx-`。
+  - **请求：** 请求 5 条结果，每页最多 256 个 token，用标准网页搜索（5 美元 / 千次），不用质量较低的 fast。
+- **设置页：**
+  - 按次计费的服务在 Key 下方注明价格（DeepSeek、智谱、Perplexity），并说明只发送搜索词。
+  - 借用 AI 服务 Key 的提示改为“使用「服务名」的 API Key”和“先在上方 AI 服务中保存「服务名」的 API Key”，避免中文名称两侧出现多余空格。
+- **测试：**
+  - 自动化测试覆盖：两个服务的请求地址、Key 与请求体，智谱 70 字符截断、无结果与出错，Perplexity 结果解析，应用层取 Key（智谱借用 AI Key，Perplexity 用单独 Key）。
+  - 用无效 Key 请求两个接口都返回 401，确认地址正确，Veer 会显示“请检查 Key”。
+  - 本机没有这两个服务的 Key，没有做真实搜索。联网测试 `keyedServiceAnswers` 在设置 `VEER_ZHIPU_KEY` / `VEER_PERPLEXITY_KEY` 后运行。
+- **截图：** `artifacts/2026-10-17/28-settings-zhipu-search-*.png`、`28-settings-perplexity-search-*.png`（浅色 / 深色）。

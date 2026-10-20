@@ -187,12 +187,11 @@ struct SearchSettingsSection: View {
                 let hasKey = store.hasKey(for: service)
                 LabeledContent("搜索 API Key") {
                     if hasKey {
-                        StatusBadge(kind: .success, text: "使用 \(service.title) 的 API Key", compact: true)
+                        StatusBadge(kind: .success, text: "使用「\(service.title)」的 API Key", compact: true)
                     } else {
-                        Text("先在上方选择 \(service.title) 并保存 API Key").font(.caption).foregroundStyle(.secondary)
+                        Text("先在上方 AI 服务中保存「\(service.title)」的 API Key").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text("每次搜索按 DeepSeek 的价格计费（0.75 美元 / 千次，2026-11-01 起），只发送搜索词。").font(.caption).foregroundStyle(.secondary)
             }
             if store.searchSettings.provider.needsKey {
                 if keySaved {
@@ -204,7 +203,7 @@ struct SearchSettingsSection: View {
                         }
                     }
                 } else {
-                    SecureField("搜索 API Key", text: $key, prompt: Text(store.searchSettings.provider == .tavily ? "tvly-**********" : "**********"))
+                    SecureField("搜索 API Key", text: $key, prompt: Text(store.searchSettings.provider.keyPlaceholder))
                         .onSubmit(save)
                     HStack {
                         Spacer()
@@ -212,6 +211,9 @@ struct SearchSettingsSection: View {
                             .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
+            }
+            if let note = store.searchSettings.provider.costNote {
+                Text(note).font(.caption).foregroundStyle(.secondary)
             }
             Text("AI 不确定某个服务对应哪个规则集、或需要网站的官方域名时，会先请求搜索：Veer 在 MetaCubeX 的全部规则集名称和所选服务中查找，把结果交给 AI。每条指令最多搜索 2 次，查询词与结果都会显示在对话里。")
                 .font(.caption).foregroundStyle(.secondary)

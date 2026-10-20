@@ -146,6 +146,16 @@ struct StoreTests {
         #expect(store.searchConfig == nil)
     }
 
+    @Test func zhipuSearchBorrowsItsKeyAndPerplexityUsesItsOwn() throws {
+        let store = makeStore()
+        try store.keyStore.save("zp-key", for: "zhipu")
+        try store.keyStore.save("pplx-key", for: "search.perplexity")
+        store.searchSettings = SearchSettings(enabled: true, provider: .zhipu)
+        #expect(store.searchConfig == SearchConfig(provider: .zhipu, apiKey: "zp-key"))
+        store.searchSettings.provider = .perplexity
+        #expect(store.searchConfig == SearchConfig(provider: .perplexity, apiKey: "pplx-key"))
+    }
+
     @Test func exportRefusesTheOriginalFileAndWritesTheDraft() async throws {
         let store = makeStore()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -113,6 +113,34 @@ struct WebSearchProviderTests {
         #expect(SearchProvider.deepSeek.aiServiceKey == .deepSeek && !SearchProvider.deepSeek.needsKey)
     }
 
+    @Test func zhipuSearchUsesTheBasicEngine() throws {
+        let request = try WebSearchService.request(String(repeating: "日本航空官网", count: 20), config: .init(provider: .zhipu, apiKey: "zp-key"))
+        #expect(request.url?.absoluteString == "https://open.bigmodel.cn/api/paas/v4/web_search" && request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer zp-key")
+        let body = try #require(try JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
+        #expect((body["search_query"] as? String)?.count == 70)
+        #expect(body["search_engine"] as? String == "search_std" && body["search_intent"] as? Bool == false)
+        #expect(throws: AIFailure.self) { try WebSearchService.request("jal", config: .init(provider: .zhipu)) }
+        let results = try WebSearchService.parse(Data(#"{"search_result":[{"title":"日本航空","content":"JAL 官方网站","link":"https://www.jal.co.jp/","media":"JAL"},{"title":"no link","content":"x","link":""}]}"#.utf8), provider: .zhipu)
+        #expect(results == [.init(title: "日本航空（JAL）", url: "https://www.jal.co.jp/", snippet: "JAL 官方网站")])
+        // No results is not a failure; other errors explain themselves.
+        #expect(try WebSearchService.parse(Data(#"{"error":{"code":"1703","message":"no data"}}"#.utf8), provider: .zhipu).isEmpty)
+        #expect(throws: AIFailure.self) { try WebSearchService.parse(Data(#"{"error":{"code":"1702","message":"no engine"}}"#.utf8), provider: .zhipu) }
+        #expect(SearchProvider.zhipu.aiServiceKey == .zhipu && !SearchProvider.zhipu.needsKey)
+    }
+
+    @Test func perplexitySearchUsesItsOwnKey() throws {
+        let request = try WebSearchService.request("Japan Airlines official website", config: .init(provider: .perplexity, apiKey: "pplx-1"))
+        #expect(request.url?.absoluteString == "https://api.perplexity.ai/search" && request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer pplx-1")
+        let body = try #require(try JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
+        #expect(body["query"] as? String == "Japan Airlines official website" && body["max_results"] as? Int == 5)
+        #expect(throws: AIFailure.self) { try WebSearchService.request("jal", config: .init(provider: .perplexity)) }
+        let results = try WebSearchService.parse(Data(#"{"results":[{"title":"JAL","url":"https://www.jal.com/","snippet":"Japan Airlines","date":null}],"id":"1"}"#.utf8), provider: .perplexity)
+        #expect(results == [.init(title: "JAL", url: "https://www.jal.com/", snippet: "Japan Airlines")])
+        #expect(SearchProvider.perplexity.needsKey && SearchProvider.perplexity.aiServiceKey == nil && SearchProvider.perplexity.keyAccount == "search.perplexity")
+    }
+
     @Test func oldDuckDuckGoSettingsFallBackToWikidata() throws {
         let old = try JSONDecoder().decode(SearchSettings.self, from: Data(#"{"enabled":true,"provider":"duckDuckGo","searxngURL":""}"#.utf8))
         #expect(old.provider == .wikidata && old.enabled)
@@ -231,6 +259,16 @@ struct RealSearchTests {
             print("REAL catalog \(query) → \(records.first?.geosite ?? [])")
             #expect(records.first?.web.isEmpty == false, "\(query)")
         }
+    }
+
+    /// Billed per search, so each needs its key: `VEER_ZHIPU_KEY`, `VEER_PERPLEXITY_KEY`.
+    @Test(arguments: [(SearchProvider.zhipu, "VEER_ZHIPU_KEY"), (.perplexity, "VEER_PERPLEXITY_KEY")])
+    func keyedServiceAnswers(_ provider: SearchProvider, _ variable: String) async throws {
+        guard let key = ProcessInfo.processInfo.environment[variable] else { return }
+        let records = await WebSearchService(index: RuleSetIndex(cacheURL: nil)).search(["Japan Airlines official website"], config: .init(provider: provider, apiKey: key))
+        for result in records.first?.web ?? [] { print("REAL \(provider.rawValue) → \(result.title) — \(result.url)") }
+        print("REAL \(provider.rawValue) note: \(records.first?.note ?? "-")")
+        #expect(records.first?.web.contains { $0.url.contains("jal.co") || $0.url.contains("jal.com") } == true)
     }
 
     /// Billed per search, so it also needs `VEER_DEEPSEEK_KEY`.

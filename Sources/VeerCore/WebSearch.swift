@@ -2,7 +2,7 @@ import Foundation
 
 /// Where Veer searches the web when the AI asks. The rule-set catalog is always searched.
 public enum SearchProvider: String, Sendable, Codable, CaseIterable, Identifiable {
-    case wikidata, deepSeek, tavily, brave, searxng, catalogOnly
+    case wikidata, deepSeek, zhipu, tavily, perplexity, brave, searxng, catalogOnly
 
     public var id: String { rawValue }
 
@@ -10,17 +10,41 @@ public enum SearchProvider: String, Sendable, Codable, CaseIterable, Identifiabl
         switch self {
         case .wikidata: "Wikidata 官方网站（无需 Key）"
         case .deepSeek: "DeepSeek 搜索（用 DeepSeek 的 Key，按次计费）"
+        case .zhipu: "智谱搜索（用智谱 GLM 的 Key，按次计费）"
         case .tavily: "Tavily"
+        case .perplexity: "Perplexity"
         case .brave: "Brave Search"
         case .searxng: "SearXNG（自建）"
         case .catalogOnly: "只搜索规则集目录"
         }
     }
 
-    public var needsKey: Bool { self == .tavily || self == .brave }
+    public var needsKey: Bool { self == .tavily || self == .perplexity || self == .brave }
     /// Uses the key of this AI service instead of a search key of its own.
-    public var aiServiceKey: AIProvider? { self == .deepSeek ? .deepSeek : nil }
+    public var aiServiceKey: AIProvider? {
+        switch self {
+        case .deepSeek: .deepSeek
+        case .zhipu: .zhipu
+        default: nil
+        }
+    }
+    /// What a search costs, for services that bill each one.
+    public var costNote: String? {
+        switch self {
+        case .deepSeek: "每次搜索按 DeepSeek 的价格计费（0.75 美元 / 千次，2026-11-01 起），只发送搜索词。"
+        case .zhipu: "使用智谱基础搜索引擎 search_std，每次 0.01 元，只发送搜索词。"
+        case .perplexity: "每次搜索按 Perplexity 的价格计费（5 美元 / 千次），只发送搜索词。"
+        default: nil
+        }
+    }
     public var needsURL: Bool { self == .searxng }
+    public var keyPlaceholder: String {
+        switch self {
+        case .tavily: "tvly-**********"
+        case .perplexity: "pplx-**********"
+        default: "**********"
+        }
+    }
     /// Account under which the key is kept (separate from AI service keys).
     public var keyAccount: String { "search.\(rawValue)" }
 }
@@ -293,6 +317,9 @@ public struct WebSearchService: RuleSearching {
         case 401, 403: throw AIFailure.invalidResponse("搜索服务拒绝了请求，请检查 Key。")
         case 402: throw AIFailure.invalidResponse("搜索服务账户余额不足。")
         case 429: throw AIFailure.invalidResponse("搜索服务限流或额度不足。")
+        // 智谱 explains other failures in an error object (1701–1703).
+        case _ where config.provider == .zhipu && (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] != nil:
+            return try Self.parse(data, provider: .zhipu)
         default: throw AIFailure.invalidResponse("搜索服务返回 HTTP \(response.statusCode)。")
         }
         return Array(try Self.parse(data, provider: config.provider).prefix(5))
@@ -365,6 +392,25 @@ public struct WebSearchService: RuleSearching {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
             request.httpBody = try JSONSerialization.data(withJSONObject: ["query": String(query.prefix(128)), "count": 8, "need_content": false])
+        case .zhipu:
+            // https://docs.bigmodel.cn/api-reference/工具-api/网络搜索 — the cheapest engine, no intent rewriting.
+            guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有保存智谱 GLM 的 API Key（在上方 AI 服务中选择智谱 GLM 并保存）。") }
+            request = URLRequest(url: URL(string: "https://open.bigmodel.cn/api/paas/v4/web_search")!, timeoutInterval: 20)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "search_query": String(query.prefix(70)), "search_engine": "search_std", "search_intent": false,
+                "count": 8, "content_size": "medium",
+            ] as [String: Any])
+        case .perplexity:
+            // https://docs.perplexity.ai/api-reference/search-post
+            guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有设置 Perplexity 的 API Key。") }
+            request = URLRequest(url: URL(string: "https://api.perplexity.ai/search")!, timeoutInterval: 20)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "max_results": 5, "max_tokens_per_page": 256] as [String: Any])
         case .tavily:
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有设置 Tavily 的 API Key。") }
             request = URLRequest(url: URL(string: "https://api.tavily.com/search")!, timeoutInterval: 20)
@@ -416,6 +462,21 @@ public struct WebSearchService: RuleSearching {
                 return result((item["title"] as? String).map { $0 + site }, item["url"] as? String,
                               (item["summary"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? item["snippet"] as? String)
             }
+        case .zhipu:
+            if let error = object["error"] as? [String: Any] {
+                let code = (error["code"] as? String) ?? (error["code"] as? Int).map(String.init) ?? ""
+                switch code {
+                case "1703": return []
+                case "1701": throw AIFailure.invalidResponse("搜索服务限流或额度不足。")
+                default: throw AIFailure.invalidResponse("智谱搜索出错：\(clip(error["message"] as? String))")
+                }
+            }
+            return (object["search_result"] as? [[String: Any]] ?? []).compactMap { item in
+                let site = (item["media"] as? String).flatMap { $0.isEmpty ? nil : "（\($0)）" } ?? ""
+                return result((item["title"] as? String).map { $0 + site }, item["link"] as? String, item["content"] as? String)
+            }
+        case .perplexity:
+            return (object["results"] as? [[String: Any]] ?? []).compactMap { result($0["title"] as? String, $0["url"] as? String, $0["snippet"] as? String) }
         case .tavily, .searxng:
             return (object["results"] as? [[String: Any]] ?? []).compactMap { result($0["title"] as? String, $0["url"] as? String, $0["content"] as? String) }
         case .brave:

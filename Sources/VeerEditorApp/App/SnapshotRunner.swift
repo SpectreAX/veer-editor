@@ -265,6 +265,11 @@ enum SnapshotRunner {
         store.searchSettings = SearchSettings(enabled: true, provider: .deepSeek)
         await settle(0.6)
         capture(settings, to: directory.appendingPathComponent("28-settings-deepseek-search-\(suffix).png"))
+        for provider in [SearchProvider.zhipu, .perplexity] {
+            store.searchSettings.provider = provider
+            await settle(0.6)
+            capture(settings, to: directory.appendingPathComponent("28-settings-\(provider.rawValue)-search-\(suffix).png"))
+        }
         store.searchSettings = savedSearch
         settings.orderOut(nil)
         await settle(0.4)
