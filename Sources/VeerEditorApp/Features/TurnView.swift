@@ -57,6 +57,9 @@ struct AssistantTurn: View {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("AI 的理解：\(understanding)")
             }
+            if let searches = turn.searches, !searches.isEmpty {
+                SearchRecordsView(records: searches, running: turn.outcome == .running)
+            }
             if let problem = turn.repairedFrom {
                 Label("第一次回答无法使用（\(problem)），已自动让 AI 修正。", systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -481,6 +484,17 @@ struct PayloadSheet: View {
         .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.medium))
         .overlay(RoundedRectangle(cornerRadius: Radius.medium).strokeBorder(Color.separatorLine))
         .frame(minHeight: 220)
+        if let searches = turn.searches, !searches.isEmpty {
+            DisclosureGroup("联网搜索结果（也已发送给 AI，共 \(searches.count) 条查询）") {
+                ScrollView {
+                    Text(SearchQueries.message(for: searches, refused: [], lastRound: false)).font(Typography.codeSmall).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(Spacing.sm)
+                }
+                .frame(height: 160)
+                .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.small))
+            }
+            .font(.callout)
+        }
         if let system = turn.sentPayload?.system {
             DisclosureGroup("系统说明（规则与上面的匿名配置）") {
                 ScrollView {
@@ -648,5 +662,53 @@ struct ReasoningView: View {
             .onAppear { if followingEnd { proxy.scrollTo("end", anchor: .bottom) } }
         }
         .accessibilityLabel("模型思考")
+    }
+}
+
+/// The searches the model asked for: each query, the rule sets it matched and the pages found.
+struct SearchRecordsView: View {
+    let records: [SearchRecord]
+    let running: Bool
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: Binding(get: { expanded || running }, set: { expanded = $0 })) {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                ForEach(Array(records.enumerated()), id: \.offset) { _, record in
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Label(record.query, systemImage: "magnifyingglass").font(.callout.weight(.medium))
+                        if !record.geosite.isEmpty || !record.geoip.isEmpty {
+                            FlowLayout(spacing: Spacing.xs) {
+                                ForEach(record.geosite + record.geoip.map { "geoip/\($0)" }, id: \.self) { Tag(text: $0) }
+                            }
+                            .help("MetaCubeX 中已确认存在的规则集")
+                        }
+                        ForEach(Array(record.web.enumerated()), id: \.offset) { _, result in
+                            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                                if let url = URL(string: result.url) {
+                                    Link(result.title, destination: url).font(.callout).lineLimit(1)
+                                } else {
+                                    Text(result.title).font(.callout).lineLimit(1)
+                                }
+                                Text(result.url).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+                                if !result.snippet.isEmpty {
+                                    Text(result.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                        }
+                        if record.web.isEmpty, let note = record.note {
+                            Text("网页：\(note)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Text("来源：\(records.first?.source ?? "") 与 MetaCubeX 规则集目录。搜索结果只是参考，最终修改仍需你确认。")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.subtleFill, in: RoundedRectangle(cornerRadius: Radius.small))
+        } label: {
+            Label("联网搜索 \(records.count) 条查询", systemImage: "globe").font(.callout)
+        }
     }
 }

@@ -21,6 +21,10 @@ public struct EditorEngine: Sendable {
         case reasoning(String)
         /// The first answer was unusable; Veer sent the error back and asked again.
         case retrying(String)
+        /// The model asked Veer to search these queries.
+        case searching([String])
+        /// What the searches found (also sent back to the model).
+        case searched([SearchRecord])
     }
 
     /// How many times an unusable AI answer is sent back with its error before giving up.
@@ -37,6 +41,8 @@ public struct EditorEngine: Sendable {
         public var history: [(role: String, content: String)]
         /// Send literal domains/IPs from existing rules instead of placeholders (off by default).
         public var shareRuleLiterals: Bool
+        /// Lets the model ask for searches; nil when search is off.
+        public var search: SearchConfig?
 
         public init(prompt: String, draft: ConfigDocument, regions: [String: Region], useAI: Bool, settings: AISettings, apiKey: String?,
                     history: [(role: String, content: String)] = [], shareRuleLiterals: Bool = false) {
@@ -54,11 +60,14 @@ public struct EditorEngine: Sendable {
     let ai: AIClient
     public let validator: ConfigValidating
     let verifier: RuleSetVerifying
+    let searcher: RuleSearching
 
-    public init(ai: AIClient = AIClient(), validator: ConfigValidating = MihomoValidator(), verifier: RuleSetVerifying = NetworkRuleSetVerifier()) {
+    public init(ai: AIClient = AIClient(), validator: ConfigValidating = MihomoValidator(), verifier: RuleSetVerifying = NetworkRuleSetVerifier(),
+                searcher: RuleSearching = WebSearchService()) {
         self.ai = ai
         self.validator = validator
         self.verifier = verifier
+        self.searcher = searcher
     }
 
     /// The anonymized payload a request would send; shown to the user per turn.
@@ -67,7 +76,7 @@ public struct EditorEngine: Sendable {
         var payload = AIRequestPayload(model: request.settings.modelLabel, exits: anonymized.context.exits.map(\.label),
                                        history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
                                        instruction: anonymized.context.anonymize(request.prompt),
-                                       system: AIClient.systemPrompt(config: anonymized.yaml), config: anonymized.yaml)
+                                       system: AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil), config: anonymized.yaml)
         payload.sourceDigest = AIRequestPayload.digest(request.draft.text)
         payload.shareRuleLiterals = request.shareRuleLiterals
         return payload
@@ -86,11 +95,12 @@ public struct EditorEngine: Sendable {
         }
 
         let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
-        let system = AIClient.systemPrompt(config: anonymized.yaml)
+        let system = AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil)
         let prompt = anonymized.context.anonymize(request.prompt)
         let model = request.settings.modelLabel
         var followUps: [(role: String, content: String)] = []
         var attempt = 0
+        var searchRounds = 0
         while true {
             // Thinking models stream, so their reasoning shows while they work.
             let streaming = request.settings.thinks
@@ -104,6 +114,21 @@ public struct EditorEngine: Sendable {
             do {
                 let decoded = try EditPlan.decodeReplyWithUnderstanding(answer.content)
                 if let understanding = decoded.understanding, !understanding.isEmpty { await progress(.understanding(understanding)) }
+                if case let .search(queries) = decoded.reply {
+                    // Search, hand the results back, and ask again (at most `maxRounds` times).
+                    guard let config = request.search else { throw EditorError("联网搜索未开启，不能请求搜索。请直接输出修改计划或澄清问题。") }
+                    guard searchRounds < SearchQueries.maxRounds else { throw EditorError("本轮已经搜索过 \(SearchQueries.maxRounds) 次，不能再搜索。请根据已有结果输出修改计划或澄清问题。") }
+                    let checked = SearchQueries.sanitize(queries)
+                    guard !checked.accepted.isEmpty else { throw EditorError("搜索词包含配置里的标签、占位符或私有地址，Veer 不会发送。请只用公开的服务或网站名称搜索。") }
+                    searchRounds += 1
+                    await progress(.searching(checked.accepted))
+                    let records = await searcher.search(checked.accepted, config: config)
+                    try Task.checkCancellation()
+                    await progress(.searched(records))
+                    followUps += [("assistant", String(answer.content.prefix(8_000))),
+                                  ("user", SearchQueries.message(for: records, refused: checked.refused, lastRound: searchRounds >= SearchQueries.maxRounds))]
+                    continue
+                }
                 if attempt == 0 { await progress(.finished(0, detail: "已由 \(model) 解析")) }
                 return try await handle(anonymized.restoringRuleSetNames(in: decoded.reply), request: request, progress: progress)
             } catch let error as EditorError where attempt < Self.repairAttempts {
@@ -124,6 +149,9 @@ public struct EditorEngine: Sendable {
             return .outOfScope(message)
         case let .plan(plan):
             return try await process(plan, draft: request.draft, regions: request.regions, progress: progress)
+        case .search:
+            // Searches are answered inside the AI loop; one reaching here was not allowed.
+            throw EditorError("AI 请求了联网搜索，但本轮不能再搜索。请换一种说法或开启联网搜索。")
         }
     }
 

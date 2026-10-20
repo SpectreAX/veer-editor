@@ -149,6 +149,8 @@ public struct Turn: Codable, Identifiable, Sendable, Equatable {
     public var reasoning: String?
     /// Set when the first AI answer was unusable and Veer asked again.
     public var repairedFrom: String?
+    /// Searches the model asked for, with what they found (also sent to the model).
+    public var searches: [SearchRecord]?
 
     public init(prompt: String, mode: Mode, steps: [Step], outcome: Outcome = .running, now: Date = .now) {
         id = UUID()

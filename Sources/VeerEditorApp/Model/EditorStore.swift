@@ -71,6 +71,10 @@ final class EditorStore {
     var validateBeforeExport: Bool { didSet { defaults.set(validateBeforeExport, forKey: "validateBeforeExport") } }
     /// Send literal domains/IPs from existing rules to the AI instead of placeholders. Off by default.
     var shareRuleLiterals: Bool { didSet { defaults.set(shareRuleLiterals, forKey: "shareRuleLiterals") } }
+    /// Whether and where the AI may search the web.
+    var searchSettings: SearchSettings {
+        didSet { if let data = try? JSONEncoder().encode(searchSettings) { defaults.set(data, forKey: "searchSettings") } }
+    }
     /// Keys used only for this app run when the user chose not to save them, by service.
     private var sessionKeys: [AIProvider: String] = [:]
     /// The current service's key for this run only.
@@ -120,6 +124,7 @@ final class EditorStore {
         useAI = defaults.object(forKey: "useAI") as? Bool ?? false
         validateBeforeExport = defaults.object(forKey: "validateBeforeExport") as? Bool ?? true
         shareRuleLiterals = defaults.object(forKey: "shareRuleLiterals") as? Bool ?? false
+        searchSettings = defaults.data(forKey: "searchSettings").flatMap { try? JSONDecoder().decode(SearchSettings.self, from: $0) } ?? SearchSettings()
         keySaved = keyStore.read(for: settings.provider.rawValue) != nil
         if persist {
             sessions = store.loadAll()
@@ -388,6 +393,7 @@ final class EditorStore {
         var request = EditorEngine.Request(prompt: prompt, draft: draft, regions: session.regions(for: draft.targets), useAI: useAI,
                                            settings: settings, apiKey: apiKey, history: history(for: session, context: draft),
                                            shareRuleLiterals: shareRuleLiterals)
+        request.search = useAI ? searchConfig : nil
         if useAI { turn.sentPayload = EditorEngine.payload(for: request) }
         invalidatePending(in: &session)
         session.turns.append(turn)
@@ -497,6 +503,11 @@ final class EditorStore {
             case .retrying(let problem):
                 turn.repairedFrom = problem
                 turn.steps[0].detail = "第一次回答无法使用，已自动让 AI 修正"
+            case .searching(let queries):
+                turn.steps[0].detail = "正在联网搜索：\(queries.joined(separator: "；"))"
+            case .searched(let records):
+                turn.searches = (turn.searches ?? []) + records
+                turn.steps[0].detail = "已联网搜索 \(turn.searches?.count ?? 0) 条，正在根据结果生成计划"
             }
         }
     }
@@ -806,6 +817,14 @@ final class EditorStore {
 
     private func saveSettings() {
         if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: "aiSettings") }
+    }
+
+    /// What the next AI request may use for search; nil when search is off.
+    var searchConfig: SearchConfig? {
+        guard searchSettings.enabled else { return nil }
+        let provider = searchSettings.provider
+        return SearchConfig(provider: provider, apiKey: provider.needsKey ? keyStore.read(for: provider.keyAccount) : nil,
+                            baseURL: provider.needsURL ? searchSettings.searxngURL : nil)
     }
 
     /// The address snapshot runs use to show an AI failure.

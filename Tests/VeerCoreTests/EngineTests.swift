@@ -262,8 +262,8 @@ struct ClarificationLoopTests {
                 #expect(try ConfigDocument.parse(PlanApplier.apply(plan, to: doc).candidate).rules.prefix(2)
                         == ["RULE-SET,netflix,[A]JP PrivateNET 01", "RULE-SET,openai,[A]US PrivateNET 01"])
                 return
-            case .outOfScope:
-                Issue.record("unexpected out-of-scope"); return
+            case .outOfScope, .search:
+                Issue.record("unexpected reply"); return
             }
         }
     }

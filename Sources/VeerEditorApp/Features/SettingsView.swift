@@ -78,6 +78,7 @@ struct AISettingsPane: View {
                 Text("深度思考让模型先推理再回答，更擅长理解复杂指令；强度越高越慢、费用越高。DeepSeek V4、Claude、Gemini 2.5 Flash、GPT-5 可选强度，GLM 只能开关，o4-mini、R1 等推理模型始终深度思考。")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            SearchSettingsSection()
             Section {
                 Toggle("对话默认使用 AI 解析", isOn: $store.useAI)
                 Text("AI 回答无法使用时，Veer 会把问题发回让它修正一次。测试连接和获取模型列表不包含任何配置。地址必须是 HTTPS，本机服务可以用 HTTP。")
@@ -162,6 +163,68 @@ struct AISettingsPane: View {
     }
 }
 
+/// Whether the AI may search, and where. The rule-set catalog is always part of a search.
+struct SearchSettingsSection: View {
+    @Environment(EditorStore.self) private var store
+    @State private var key = ""
+    @State private var keySaved = false
+
+    var body: some View {
+        @Bindable var store = store
+        Section {
+            Toggle("允许 AI 联网搜索", isOn: $store.searchSettings.enabled)
+                .toggleStyle(.checkbox)
+            Picker("搜索服务", selection: $store.searchSettings.provider) {
+                ForEach(SearchProvider.allCases) { Text($0.title).tag($0) }
+            }
+            .neutralControl()
+            .disabled(!store.searchSettings.enabled)
+            if store.searchSettings.provider.needsURL {
+                TextField("SearXNG 地址", text: $store.searchSettings.searxngURL, prompt: Text("http://127.0.0.1:8888"))
+                    .disabled(!store.searchSettings.enabled)
+            }
+            if store.searchSettings.provider.needsKey {
+                if keySaved {
+                    LabeledContent("搜索 API Key") {
+                        HStack {
+                            StatusBadge(kind: .success, text: "已保存在本机", compact: true)
+                            Spacer()
+                            Button("移除") { store.keyStore.delete(for: store.searchSettings.provider.keyAccount); refresh() }
+                        }
+                    }
+                } else {
+                    SecureField("搜索 API Key", text: $key, prompt: Text(store.searchSettings.provider == .tavily ? "tvly-**********" : "**********"))
+                        .onSubmit(save)
+                    HStack {
+                        Spacer()
+                        Button("保存", action: save).buttonStyle(.borderedProminent).tint(.veerAccent)
+                            .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            Text("AI 不确定某个服务对应哪个规则集、或需要网站的官方域名时，会先请求搜索：Veer 在 MetaCubeX 的全部规则集名称和所选服务中查找，把结果交给 AI。每条指令最多搜索 2 次，查询词与结果都会显示在对话里。")
+                .font(.caption).foregroundStyle(.secondary)
+        } header: {
+            Text("联网搜索")
+        }
+        .onAppear(perform: refresh)
+        .onChange(of: store.searchSettings.provider) { key = ""; refresh() }
+    }
+
+    private func refresh() {
+        let provider = store.searchSettings.provider
+        keySaved = provider.needsKey && store.keyStore.read(for: provider.keyAccount) != nil
+    }
+
+    private func save() {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        try? store.keyStore.save(trimmed, for: store.searchSettings.provider.keyAccount)
+        key = ""
+        refresh()
+    }
+}
+
 /// Entering a key: a form field like 地址, then "remember" and Save on the next row.
 struct KeyEntryRow: View {
     let provider: String
@@ -222,6 +285,7 @@ struct PrivacySettingsPane: View {
                 Label("现有规则的类型与匿名出口；具体域名和 IP 默认替换为占位符", systemImage: "checkmark")
                 Label("你的指令，其中的出口名称会替换成匿名标签", systemImage: "checkmark")
                 Label("本会话最近几轮的匿名摘要，用于理解追问", systemImage: "checkmark")
+                Label("开启联网搜索时：AI 生成的搜索词（公开的服务或网站名称）发送给所选搜索服务，规则集目录从 GitHub 读取；包含配置标签、占位符或私有地址的搜索词会被拒绝", systemImage: "magnifyingglass")
             }
             Section("从不发送") {
                 Label("真实的节点、策略组和代理集名称", systemImage: "xmark")

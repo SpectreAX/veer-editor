@@ -103,6 +103,16 @@ public extension AITransport {
 public final class URLSessionTransport: NSObject, AITransport, URLSessionTaskDelegate, @unchecked Sendable {
     public static let maxBytes = 512 * 1024
     lazy var session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: nil)
+    /// Body cap; the rule-set catalog index needs more than an AI answer.
+    let limit: Int
+
+    public init(maxBytes: Int) {
+        limit = maxBytes
+        super.init()
+    }
+
+    /// NSObject's own init() would otherwise be picked for `URLSessionTransport()` and leave `limit` unset.
+    public override convenience init() { self.init(maxBytes: Self.maxBytes) }
 
     public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (bytes, response) = try await session.bytes(for: request)
@@ -110,7 +120,9 @@ public final class URLSessionTransport: NSObject, AITransport, URLSessionTaskDel
         var data = Data()
         for try await byte in bytes {
             data.append(byte)
-            if data.count > Self.maxBytes { throw AIFailure.invalidResponse("AI 服务响应超过 512 KB 限制，请缩短指令后重试。") }
+            if data.count > limit {
+                throw AIFailure.invalidResponse(limit == Self.maxBytes ? "AI 服务响应超过 512 KB 限制，请缩短指令后重试。" : "响应超过 \(limit / 1024 / 1024) MB 限制。")
+            }
         }
         return (data, http)
     }
@@ -486,8 +498,8 @@ public struct AIClient: Sendable {
     }
 
     /// Instructions for every Veer client; see `SystemPrompt`.
-    public static func systemPrompt(config: String) -> String {
-        SystemPrompt.build(config: config)
+    public static func systemPrompt(config: String, search: Bool = false) -> String {
+        SystemPrompt.build(config: config, search: search)
     }
 }
 

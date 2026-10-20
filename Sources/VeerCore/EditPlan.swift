@@ -75,6 +75,8 @@ public enum AssistantReply: Sendable, Equatable {
     case plan(EditPlan)
     case clarification(String, options: [ClarifyOption])
     case outOfScope(String)
+    /// The model wants Veer to search before it answers (public names only).
+    case search([String])
 }
 
 extension EditPlan {
@@ -102,6 +104,13 @@ extension EditPlan {
             throw EditorError("AI 没有返回有效的结构化计划，请换一种说法再试。")
         }
         let understanding = (root["understanding"] as? String).map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(400)) }
+        if let search = root["search"] {
+            guard Set(root.keys).isSubset(of: ["search", "understanding"]), let request = search as? [String: Any],
+                  Set(request.keys).isSubset(of: ["queries"]), let queries = request["queries"] as? [String], !queries.isEmpty else {
+                throw EditorError("AI 的搜索请求格式无效：search 只能包含 queries（字符串数组），且不能和计划或问题同时出现。")
+            }
+            return (.search(Array(queries.prefix(SearchQueries.maxQueries * 2))), understanding)
+        }
         if let clarification = root["clarification"] {
             guard Set(root.keys).isSubset(of: ["clarification", "understanding"]), let question = clarification as? String,
                   !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
