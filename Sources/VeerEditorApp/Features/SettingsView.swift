@@ -300,6 +300,10 @@ struct PrivacySettingsPane: View {
                 Label("本会话最近几轮的匿名摘要，用于理解追问", systemImage: "checkmark")
                 Label("开启联网搜索时：AI 生成的搜索词（公开的服务或网站名称）发送给所选搜索服务，规则集目录从 GitHub 读取；包含配置标签、占位符或私有地址的搜索词会被拒绝", systemImage: "magnifyingglass")
             }
+            Section("查询工具") {
+                Label("规则集与 IP 查询在本机进行：地理数据（MetaCubeX geosite、geoip 与 GeoLite2-ASN）只在你点下载时从 GitHub 获取", systemImage: "lock.shield")
+                Label("DNS 查询只发给你选择的服务器；IP 页输入域名时通过阿里 DoH 解析", systemImage: "network")
+            }
             Section("从不发送") {
                 Label("真实的节点、策略组和代理集名称", systemImage: "xmark")
                 Label("节点地址、端口、密码、UUID、协议与传输参数", systemImage: "xmark")

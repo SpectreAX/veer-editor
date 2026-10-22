@@ -297,6 +297,35 @@ enum SnapshotRunner {
         store.searchSettings = savedSearch
         settings.orderOut(nil)
         await settle(0.4)
+
+        // Lookup tools, before and after the geodata is on disk (VEER_SNAPSHOT_GEODATA: a folder with the files).
+        let lookup = NSWindow(contentViewController: NSHostingController(rootView: LookupView().environment(store).tint(.veerAccent)))
+        lookup.title = "查询工具"
+        lookup.setContentSize(CGSize(width: 760, height: 720))
+        lookup.makeKeyAndOrderFront(nil)
+        store.lookupTab = .ruleSets
+        store.refreshGeoStatus()
+        await settle(1.0)
+        capture(lookup, to: directory.appendingPathComponent("31-lookup-download-\(suffix).png"))
+        if let source = ProcessInfo.processInfo.environment["VEER_SNAPSHOT_GEODATA"] {
+            let target = store.geo.directory
+            try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            for file in GeoDataFile.allCases {
+                try? FileManager.default.copyItem(at: URL(fileURLWithPath: source).appendingPathComponent(file.rawValue),
+                                                  to: target.appendingPathComponent(file.rawValue))
+            }
+            store.refreshGeoStatus()
+            for (tab, query, name, wait) in [(LookupTab.ruleSets, "www.netflix.com", "31b-lookup-rulesets", 2.5),
+                                             (.ip, "1.1.1.1", "31c-lookup-ip", 3.0), (.dns, "www.jal.co.jp", "31d-lookup-dns", 3.0)] {
+                store.lookupTab = tab
+                await settle(0.3)
+                store.lookupRequest = LookupRequest(tab: tab, text: query)
+                await settle(wait)
+                capture(lookup, to: directory.appendingPathComponent("\(name)-\(suffix).png"))
+            }
+        }
+        lookup.orderOut(nil)
+        await settle(0.3)
         store.useAI = false
         store.sessionKey = nil
         store.selectProvider(.deepSeek)

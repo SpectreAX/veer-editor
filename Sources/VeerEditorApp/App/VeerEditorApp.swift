@@ -23,6 +23,14 @@ struct VeerEditorApp: App {
         .windowToolbarStyle(.unified)
         .commands { EditorCommands(store: store) }
 
+        Window("查询工具", id: "lookup") {
+            LookupView()
+                .environment(store)
+                .tint(.veerAccent)
+        }
+        .defaultSize(width: 760, height: 720)
+        .windowToolbarStyle(.unified)
+
         Settings {
             SettingsView()
                 .environment(store)
@@ -37,7 +45,9 @@ extension EditorStore {
     static func makeForLaunch() -> EditorStore {
         if ProcessInfo.processInfo.environment["VEER_SNAPSHOT_DIR"] != nil {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("veer-snapshot-\(UUID().uuidString)")
-            return EditorStore(store: SessionStore(directory: directory), keyStore: MemoryKeyStore(), defaults: MemoryDefaults(), persist: false)
+            // Geodata in its own temporary folder; the runner copies VEER_SNAPSHOT_GEODATA's files in.
+            return EditorStore(store: SessionStore(directory: directory), keyStore: MemoryKeyStore(),
+                               geo: GeoDataStore(directory: directory.appendingPathComponent("GeoData")), defaults: MemoryDefaults(), persist: false)
         }
         if let directory = SwitchProfiler.directory {
             // Loads (and could save to) the given copy only; keys and preferences stay in memory.
@@ -91,6 +101,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Opens the lookup window (a View, so it can use openWindow).
+private struct LookupCommand: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button("查询工具…") { openWindow(id: "lookup") }.keyboardShortcut("l", modifiers: [.command, .shift])
+    }
+}
+
 struct EditorCommands: Commands {
     let store: EditorStore
 
@@ -114,6 +132,7 @@ struct EditorCommands: Commands {
             Button("配置概览…") { store.showingOverview = true }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(store.current == nil)
+            LookupCommand()
             Divider()
             Button("全部接受") { store.setAllAccepted(true) }
                 .keyboardShortcut("a", modifiers: [.command, .option])

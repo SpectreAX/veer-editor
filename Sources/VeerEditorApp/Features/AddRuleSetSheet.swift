@@ -12,6 +12,8 @@ struct AddRuleSetSheet: View {
     @State private var url = ""
     @State private var behavior = "domain"
     @State private var targetID = ""
+    /// Set while a prefilled source is applied, so its name is not cleared.
+    @State private var keepName = false
 
     static let sources: [(id: String, title: String, names: [String])] = [
         ("metacubex-geosite", "MetaCubeX geosite（域名，推荐）", SystemPrompt.geositeNames),
@@ -125,7 +127,17 @@ struct AddRuleSetSheet: View {
         }
         .padding(Spacing.xl)
         .frame(width: 620)
-        .onChange(of: source) { name = "" }
+        .onChange(of: source) {
+            if keepName { keepName = false } else { name = "" }
+        }
+        .onAppear {
+            guard let prefill = store.ruleSetPrefill else { return }
+            store.ruleSetPrefill = nil
+            mode = 0
+            keepName = prefill.source != source
+            source = prefill.source
+            name = prefill.name
+        }
     }
 
     private func exitLabel(_ target: Target, region: Region?) -> String {

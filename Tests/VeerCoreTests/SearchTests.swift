@@ -6,13 +6,15 @@ import Testing
 final class RoutedTransport: AITransport, @unchecked Sendable {
     let routes: [(match: String, status: Int, body: String)]
     private(set) var requests: [URLRequest] = []
+    /// Returned instead of the route's text body (DNS messages).
+    var binaryBody: Data?
     private let lock = NSLock()
     init(_ routes: [(String, Int, String)]) { self.routes = routes.map { (match: $0.0, status: $0.1, body: $0.2) } }
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         lock.withLock { requests.append(request) }
         let url = request.url!.absoluteString
         guard let route = routes.first(where: { url.contains($0.match) }) else { throw URLError(.notConnectedToInternet) }
-        return (Data(route.body.utf8), HTTPURLResponse(url: request.url!, statusCode: route.status, httpVersion: nil, headerFields: nil)!)
+        return (binaryBody ?? Data(route.body.utf8), HTTPURLResponse(url: request.url!, statusCode: route.status, httpVersion: nil, headerFields: nil)!)
     }
 }
 

@@ -699,6 +699,19 @@ struct SearchRecordsView: View {
                         if record.web.isEmpty, let note = record.note {
                             Text("网页：\(note)").font(.caption).foregroundStyle(.secondary)
                         }
+                        ForEach(record.containing ?? [], id: \.domain) { entry in
+                            VStack(alignment: .leading, spacing: Spacing.xxs) {
+                                Text("包含 \(entry.domain) 的规则集").font(.caption).foregroundStyle(.secondary)
+                                if entry.sets.isEmpty {
+                                    Text("没有").font(.caption).foregroundStyle(.tertiary)
+                                } else {
+                                    FlowLayout(spacing: Spacing.xs) {
+                                        ForEach(entry.sets, id: \.self) { Tag(text: GeoSiteHit.isBroad($0) ? "\($0)（宽泛）" : $0) }
+                                    }
+                                }
+                            }
+                            .help("Veer 在本机地理数据中按域名查到")
+                        }
                     }
                 }
                 Text("来源：\(records.first?.source ?? "") 与 MetaCubeX 规则集目录。搜索结果只是参考，最终修改仍需你确认。")

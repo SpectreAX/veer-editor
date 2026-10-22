@@ -46,6 +46,14 @@ final class EditorStore {
     /// Turn count when the session was selected; turns added since are always shown.
     @ObservationIgnored private var turnBaseline = 0
     var showingStart = false
+    // Lookup tools (rule sets, DNS, IP).
+    var lookupTab: LookupTab = .ruleSets
+    /// A query handed to a lookup tab (from another tab or the main window); the tab runs it.
+    var lookupRequest: LookupRequest?
+    var geoStatus: GeoDataStore.Status?
+    var geoDownload: GeoDownloadState = .idle
+    /// Source and name for the add-rule-set sheet, set by a lookup result.
+    var ruleSetPrefill: RuleSetPrefill?
     var inspectorPresented = true
     var inspectorTab: InspectorTab = .changes
     var inspectedTurnID: UUID?
@@ -97,6 +105,8 @@ final class EditorStore {
     var keySaved: Bool
 
     let store: SessionStore
+    /// Downloaded geodata for the lookup tools and AI search.
+    let geo: GeoDataStore
     let keyStore: KeyStoring
     @ObservationIgnored let defaults: UserDefaults
     let engine: EditorEngine
@@ -116,11 +126,12 @@ final class EditorStore {
     @ObservationIgnored private var saveWork: [UUID: DispatchWorkItem] = [:]
     @ObservationIgnored private var toastWork: DispatchWorkItem?
 
-    init(store: SessionStore = SessionStore(), keyStore: KeyStoring = FileKeyStore(), engine: EditorEngine = EditorEngine(),
-         defaults: UserDefaults = .standard, persist: Bool = true) {
+    init(store: SessionStore = SessionStore(), keyStore: KeyStoring = FileKeyStore(), engine: EditorEngine? = nil,
+         geo: GeoDataStore = .shared, defaults: UserDefaults = .standard, persist: Bool = true) {
         self.store = store
+        self.geo = geo
         self.keyStore = keyStore
-        self.engine = engine
+        self.engine = engine ?? EditorEngine(searcher: WebSearchService(geo: geo))
         self.defaults = defaults
         var settings = AISettings()
         if let data = defaults.data(forKey: "aiSettings"), let saved = try? JSONDecoder().decode(AISettings.self, from: data) {

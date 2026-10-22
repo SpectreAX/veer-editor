@@ -38,6 +38,7 @@ extension EditorStore {
 
 struct DetailView: View {
     @Environment(EditorStore.self) private var store
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var store = store
@@ -85,6 +86,8 @@ struct DetailView: View {
                     .help("重做（⇧⌘Z）").disabled(!store.canRedo)
                 Button { store.showingOverview = true } label: { Label("配置概览", systemImage: "list.bullet.rectangle") }
                     .help("查看配置解析结果（⇧⌘I）")
+                Button { openWindow(id: "lookup") } label: { Label("查询工具", systemImage: "magnifyingglass.circle") }
+                    .help("规则集、DNS 与 IP 查询（⇧⌘L）")
                 Button { store.requestExport() } label: { Label("导出", systemImage: "square.and.arrow.up") }
                     .help(editing ? "导出完整配置副本（⌘E）" : "确认出口后可以导出")
                     .disabled(!editing)

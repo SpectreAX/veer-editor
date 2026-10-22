@@ -98,6 +98,20 @@ public struct SearchRecord: Sendable, Codable, Equatable, Hashable {
         }
     }
 
+    /// geosite rule sets that contain a domain, found in the local geosite.dat.
+    public struct DomainSets: Sendable, Codable, Equatable, Hashable {
+        public let domain: String
+        /// Specific sets first, then broad ones.
+        public let sets: [String]
+        /// Sets that contain the domain only through keyword / regex entries (GEOSITE rules only).
+        public let geositeOnly: [String]
+        public init(domain: String, sets: [String], geositeOnly: [String] = []) {
+            self.domain = domain
+            self.sets = sets
+            self.geositeOnly = geositeOnly
+        }
+    }
+
     public let query: String
     /// MetaCubeX geosite names that exist and match the query.
     public var geosite: [String]
@@ -107,6 +121,8 @@ public struct SearchRecord: Sendable, Codable, Equatable, Hashable {
     public var source: String
     /// Why the web part is empty (no answer, missing key, network error).
     public var note: String?
+    /// Rule sets that contain the query's domain or the result sites' domains (when geodata is downloaded).
+    public var containing: [DomainSets]?
 
     public init(query: String, geosite: [String] = [], geoip: [String] = [], web: [WebResult] = [], source: String, note: String? = nil) {
         self.query = query
@@ -156,6 +172,15 @@ public enum SearchQueries {
                 if !record.geosite.isEmpty { lines.append("· 规则集目录（metacubex-geosite，已确认存在，可直接作为 rule_set 的 name）：\(record.geosite.joined(separator: "、"))") }
                 if !record.geoip.isEmpty { lines.append("· 规则集目录（metacubex-geoip，已确认存在）：\(record.geoip.joined(separator: "、"))") }
             }
+            if let containing = record.containing, !containing.isEmpty {
+                lines.append("· 包含这些域名的规则集（Veer 在本机 geosite 数据里按域名查到，已确认存在，可直接作为 metacubex-geosite 的 name；先具体后宽泛，带 * 的是宽泛分类，不要只为一个网站使用）：")
+                for entry in containing {
+                    let sets = entry.sets.map { GeoSiteHit.isBroad($0) ? "\($0)*" : $0 }
+                    var line = "  \(entry.domain)：\(sets.isEmpty ? "没有规则集文件包含它" : sets.joined(separator: "、"))"
+                    if !entry.geositeOnly.isEmpty { line += "（只通过关键词/正则命中，规则集文件不包含：\(entry.geositeOnly.joined(separator: "、"))）" }
+                    lines.append(line)
+                }
+            }
             if record.web.isEmpty {
                 lines.append("· 网页（\(record.source)）：\(record.note ?? "没有结果。")")
             } else {
@@ -198,6 +223,13 @@ public actor RuleSetIndex {
 
     public static var defaultCacheURL: URL {
         SessionStore.defaultDirectory.deletingLastPathComponent().appendingPathComponent("rule-set-index.json")
+    }
+
+    /// Every geosite name from GitHub (fresh or cached); nil when only the short built-in list is
+    /// available, which is too incomplete to filter by.
+    public func geositeCatalog() async -> Set<String>? {
+        let names = await names().geosite
+        return snapshot == nil ? nil : Set(names)
     }
 
     /// Names (geosite, geoip). Falls back to an older cache, then to the verified names in the prompt.
@@ -278,10 +310,13 @@ public actor RuleSetIndex {
 public struct WebSearchService: RuleSearching {
     let transport: AITransport
     let index: RuleSetIndex
+    /// Local geodata, for "which rule sets contain this domain"; nil leaves that part out.
+    let geo: GeoDataStore?
 
-    public init(transport: AITransport = URLSessionTransport(), index: RuleSetIndex = .shared) {
+    public init(transport: AITransport = URLSessionTransport(), index: RuleSetIndex = .shared, geo: GeoDataStore? = nil) {
         self.transport = transport
         self.index = index
+        self.geo = geo
     }
 
     public func search(_ queries: [String], config: SearchConfig) async -> [SearchRecord] {
@@ -303,9 +338,28 @@ public struct WebSearchService: RuleSearching {
                     record.note = "搜索失败。"
                 }
             }
+            record.containing = await containing(query: query, results: record.web)
             records.append(record)
         }
         return records
+    }
+
+    /// The query's domain and the result sites' domains, each with the geosite sets containing it.
+    func containing(query: String, results: [SearchRecord.WebResult]) async -> [SearchRecord.DomainSets]? {
+        guard let geo, let database = try? await geo.geosite() else { return nil }
+        var domains: [String] = []
+        for candidate in [GeoLookup.domain(in: query)] + results.map({ URL(string: $0.url)?.host() }) {
+            guard let domain = candidate.flatMap({ GeoLookup.domain(in: $0) }), !domains.contains(domain) else { continue }
+            domains.append(domain)
+            if domains.count == 4 { break }
+        }
+        guard !domains.isEmpty else { return nil }
+        let available = await index.geositeCatalog()
+        return domains.map { domain in
+            let hits = database.hits(for: domain, available: available)
+            return SearchRecord.DomainSets(domain: domain, sets: Array(hits.filter { !$0.geositeRuleOnly }.map(\.name).prefix(8)),
+                                           geositeOnly: Array(hits.filter(\.geositeRuleOnly).map(\.name).prefix(4)))
+        }
     }
 
     func web(_ query: String, config: SearchConfig) async throws -> [SearchRecord.WebResult] {

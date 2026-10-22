@@ -287,6 +287,7 @@ struct RuleRow: View {
 
 struct TestTab: View {
     @Environment(EditorStore.self) private var store
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var store = store
@@ -308,6 +309,17 @@ struct TestTab: View {
                     }
                 } else {
                     StatusBadge(kind: .warning, text: "这不是有效的域名或 IP 地址。").font(.callout)
+                }
+                if let domain = RuleMatcher.normalize(store.testQuery) {
+                    Button {
+                        store.lookupRequest = LookupRequest(tab: .ruleSets, text: domain)
+                        store.lookupTab = .ruleSets
+                        openWindow(id: "lookup")
+                    } label: {
+                        Label("查找包含它的规则集", systemImage: "magnifyingglass.circle")
+                    }
+                    .buttonStyle(.link).foregroundStyle(Color.veerAccent)
+                    .help("在查询工具中查看哪些 MetaCubeX 规则集包含 \(domain)")
                 }
             }
             .padding(Spacing.lg)

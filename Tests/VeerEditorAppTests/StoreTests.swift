@@ -157,6 +157,36 @@ struct StoreTests {
         #expect(store.visibleTurnCount == EditorStore.turnPage)
     }
 
+    @Test func lookupResultsKnowWhatTheDraftUses() throws {
+        let store = makeStore()
+        let config = """
+        proxies:
+          - {name: 日本 01, type: ss, server: a.invalid, port: 1, cipher: aes-128-gcm, password: p}
+        proxy-groups:
+          - {name: 日本出口, type: select, proxies: [日本 01]}
+        rule-providers:
+          netflix: {type: http, behavior: domain, format: mrs, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/netflix.mrs", path: ./netflix.mrs, interval: 86400}
+          tg: {type: http, behavior: ipcidr, format: mrs, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geoip/telegram.mrs", path: ./tg.mrs, interval: 86400}
+        rules:
+          - RULE-SET,netflix,日本出口
+          - RULE-SET,tg,日本出口,no-resolve
+          - GEOSITE,category-ai-!cn,日本出口
+          - GEOIP,CN,DIRECT
+          - MATCH,DIRECT
+        """
+        var session = Session(title: "lookup", source: .pasted, text: config)
+        session.exitsConfirmed = true
+        store.sessions = [session]
+        store.select(session.id)
+        #expect(store.usedRuleSets() == ["geosite:netflix": "日本出口", "geoip:telegram": "日本出口",
+                                         "geosite:category-ai-!cn": "日本出口", "geoip:cn": "DIRECT"])
+        #expect(store.canEditFromLookup)
+        store.routeWithRuleSet(source: "metacubex-geosite", name: "jal")
+        #expect(store.showingRuleSetSheet && store.ruleSetPrefill == RuleSetPrefill(source: "metacubex-geosite", name: "jal"))
+        store.draftInstruction("jal.co.jp 走 ")
+        #expect(store.composerText == "jal.co.jp 走 ")
+    }
+
     @Test func deepSeekSearchBorrowsTheAIServiceKey() throws {
         let store = makeStore()
         try store.keyStore.save("sk-deepseek", for: "deepSeek")
