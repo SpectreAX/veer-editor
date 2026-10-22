@@ -16,6 +16,7 @@ struct VeerEditorApp: App {
                 .onAppear {
                     delegate.store = store
                     SnapshotRunner.startIfRequested(store: store)
+                    SwitchProfiler.startIfRequested(store: store)
                 }
         }
         .defaultSize(width: Metrics.defaultWindow.width, height: Metrics.defaultWindow.height)
@@ -37,6 +38,10 @@ extension EditorStore {
         if ProcessInfo.processInfo.environment["VEER_SNAPSHOT_DIR"] != nil {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("veer-snapshot-\(UUID().uuidString)")
             return EditorStore(store: SessionStore(directory: directory), keyStore: MemoryKeyStore(), defaults: MemoryDefaults(), persist: false)
+        }
+        if let directory = SwitchProfiler.directory {
+            // Loads (and could save to) the given copy only; keys and preferences stay in memory.
+            return EditorStore(store: SessionStore(directory: directory), keyStore: MemoryKeyStore(), defaults: MemoryDefaults())
         }
         return EditorStore()
     }

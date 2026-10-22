@@ -44,15 +44,20 @@ struct DetailView: View {
         Group {
             if store.showingStart || store.current == nil {
                 StartView()
-            } else if store.current?.exitsConfirmed == false {
-                ExitReviewView()
             } else {
+                // One layout for every session: switching between one that is confirming exits and
+                // one being edited swaps the content only, instead of rebuilding the inspector's
+                // split view (and the views it hosts) on every switch.
+                let editing = store.current?.exitsConfirmed == true
                 GeometryReader { proxy in
-                    ConversationView()
-                        .inspector(isPresented: $store.inspectorPresented) {
-                            InspectorView()
-                                .inspectorColumnWidth(min: 300, ideal: proxy.size.width < Metrics.compactBreakpoint ? 320 : Metrics.inspectorWidth, max: 520)
-                        }
+                    Group {
+                        if editing { ConversationView() } else { ExitReviewView() }
+                    }
+                    .inspector(isPresented: Binding(get: { editing && store.inspectorPresented },
+                                                    set: { if editing { store.inspectorPresented = $0 } })) {
+                        InspectorView()
+                            .inspectorColumnWidth(min: 300, ideal: proxy.size.width < Metrics.compactBreakpoint ? 320 : Metrics.inspectorWidth, max: 520)
+                    }
                 }
             }
         }
@@ -69,7 +74,10 @@ struct DetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        if !store.showingStart, store.current?.exitsConfirmed == true {
+        // Present for every session, disabled while exits are being confirmed: adding and removing
+        // toolbar items on each switch rebuilds the window toolbar.
+        if !store.showingStart, let current = store.current {
+            let editing = current.exitsConfirmed
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { store.undo() } label: { Label("撤销写入", systemImage: "arrow.uturn.backward") }
                     .help("撤销上一次写入（⌘Z）").disabled(!store.canUndo)
@@ -78,9 +86,11 @@ struct DetailView: View {
                 Button { store.showingOverview = true } label: { Label("配置概览", systemImage: "list.bullet.rectangle") }
                     .help("查看配置解析结果（⇧⌘I）")
                 Button { store.requestExport() } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                    .help("导出完整配置副本（⌘E）")
+                    .help(editing ? "导出完整配置副本（⌘E）" : "确认出口后可以导出")
+                    .disabled(!editing)
                 Button { store.inspectorPresented.toggle() } label: { Label("检查器", systemImage: "sidebar.right") }
-                    .help("显示或隐藏检查器（⌥⌘I）")
+                    .help(editing ? "显示或隐藏检查器（⌥⌘I）" : "确认出口后可以使用检查器")
+                    .disabled(!editing)
             }
         }
     }

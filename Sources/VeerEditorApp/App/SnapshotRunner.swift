@@ -236,6 +236,24 @@ enum SnapshotRunner {
             await settle(0.3)
         }
 
+        // A long session opens with only its newest turns; older ones load on request.
+        if var session = store.current, let other = store.sessions.first(where: { $0.id != session.id }) {
+            let saved = session.turns
+            session.turns += (1...14).map { index in
+                var turn = Turn(prompt: "第 \(index) 轮", mode: .local, steps: [])
+                turn.outcome = .note("第 \(index) 轮：已撤销上一次写入，草稿恢复到之前的状态。")
+                return turn
+            }
+            store.current = session
+            store.select(other.id)
+            await settle(0.4)
+            store.select(session.id)
+            await shot("29b-older-turns")
+            session.turns = saved
+            store.current = session
+            await settle(0.3)
+        }
+
         // Model and thinking strength; settings list the service's models.
         store.settings = AISettings(provider: .deepSeek, model: "deepseek-v4-pro", thinkingLevel: .high)
         store.settings.fetchedModels = ["deepseek-flash", "deepseek-v4-pro"]

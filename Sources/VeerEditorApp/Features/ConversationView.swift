@@ -8,11 +8,26 @@ struct ConversationView: View {
     static let examples = ["Netflix 走日本，ChatGPT 走美国", "YouTube 走香港", "example.com 直连", "屏蔽广告"]
 
     var body: some View {
-        let turns = store.current?.turns ?? []
+        let allTurns = store.current?.turns ?? []
+        let turns = allTurns.suffix(store.visibleTurnCount)
+        let hidden = allTurns.count - turns.count
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Spacing.xl) {
                     if turns.isEmpty { emptyState }
+                    if hidden > 0, let first = turns.first?.id {
+                        Button {
+                            store.olderTurnPages += 1
+                            // Keep the turn that was at the top in place instead of jumping to the oldest.
+                            DispatchQueue.main.async { proxy.scrollTo(first, anchor: .top) }
+                        } label: {
+                            Label("显示更早的 \(min(EditorStore.turnPage, hidden)) 轮对话（还有 \(hidden) 轮）", systemImage: "clock.arrow.circlepath")
+                        }
+                        .buttonStyle(.link)
+                        .foregroundStyle(Color.veerAccent)
+                        .frame(maxWidth: .infinity)
+                        .help("较早的对话不会自动显示，以便快速切换会话")
+                    }
                     ForEach(turns) { turn in
                         TurnView(turn: turn).id(turn.id)
                     }
@@ -48,7 +63,7 @@ struct ConversationView: View {
             .onChange(of: store.conversationToken) {
                 if followsBottom { withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
-            .onChange(of: turns.count) { old, new in
+            .onChange(of: allTurns.count) { old, new in
                 // A new turn is always something the user just asked for: show it.
                 guard new > old else { return }
                 followsBottom = true

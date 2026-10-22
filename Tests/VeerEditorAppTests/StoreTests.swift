@@ -137,6 +137,26 @@ struct StoreTests {
         #expect(store.apiKey == "sk-ant-session" && store.settings.modelLabel == "claude-haiku-5-5 · 深度思考 · 低")
     }
 
+    @Test func longSessionsOpenWithTheirNewestTurns() throws {
+        let store = makeStore()
+        var long = Session(title: "long", source: .sample, text: SampleConfig.text)
+        long.turns = (0..<25).map { Turn(prompt: "\($0)", mode: .local, steps: [], outcome: .note("\($0)")) }
+        let short = Session(title: "short", source: .sample, text: SampleConfig.text)
+        store.sessions = [long, short]
+        store.select(long.id)
+        #expect(store.visibleTurnCount == EditorStore.turnPage)
+        store.olderTurnPages += 1
+        #expect(store.visibleTurnCount == 2 * EditorStore.turnPage)
+        // New turns are always shown, on top of the window.
+        long.turns.append(Turn(prompt: "new", mode: .local, steps: [], outcome: .note("new")))
+        store.current = long
+        #expect(store.visibleTurnCount == 2 * EditorStore.turnPage + 1)
+        // Switching resets the window.
+        store.select(short.id)
+        store.select(long.id)
+        #expect(store.visibleTurnCount == EditorStore.turnPage)
+    }
+
     @Test func deepSeekSearchBorrowsTheAIServiceKey() throws {
         let store = makeStore()
         try store.keyStore.save("sk-deepseek", for: "deepSeek")

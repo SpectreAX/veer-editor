@@ -38,7 +38,13 @@ struct Toast: Equatable, Identifiable {
 @Observable
 final class EditorStore {
     var sessions: [Session] = []
-    var selectedID: UUID?
+    var selectedID: UUID? {
+        didSet { if selectedID != oldValue { olderTurnPages = 0; turnBaseline = current?.turns.count ?? 0 } }
+    }
+    /// Pages of older turns the user asked to see in the current session.
+    var olderTurnPages = 0
+    /// Turn count when the session was selected; turns added since are always shown.
+    @ObservationIgnored private var turnBaseline = 0
     var showingStart = false
     var inspectorPresented = true
     var inspectorTab: InspectorTab = .changes
@@ -101,7 +107,7 @@ final class EditorStore {
     @ObservationIgnored private var regionCache: (id: UUID, draft: String, overrides: [String: Region], value: [String: Region])?
     @ObservationIgnored private var addedCache: (original: String, draft: String, value: Set<String>)?
     @ObservationIgnored private var diffCache: [(old: String, new: String, lines: [DiffLine])] = []
-    @ObservationIgnored private var structureCache: (old: String, new: String, diff: ConfigDiff)?
+    @ObservationIgnored private var structureCache: [(old: String, new: String, diff: ConfigDiff)] = []
     /// Changes tab: visual cards (default) or the YAML line diff.
     var changesVisual = true
     /// The new group being edited from a review card.
@@ -134,6 +140,7 @@ final class EditorStore {
         if persist {
             sessions = store.loadAll()
             selectedID = sessions.first?.id
+            turnBaseline = sessions.first?.turns.count ?? 0
         }
         showingStart = sessions.isEmpty
     }
@@ -157,15 +164,21 @@ final class EditorStore {
         }
         guard let parsed = try? ConfigDocument.parse(text) else { return nil }
         documentCache.insert((text, parsed), at: 0)
-        if documentCache.count > 8 { documentCache.removeLast() }
+        if documentCache.count > 16 { documentCache.removeLast() }
         return parsed
     }
 
     /// Structural diff (groups, rules, rule sets) for the visual change view.
     func structure(_ old: String, _ new: String) -> ConfigDiff {
-        if let cache = structureCache, cache.old == old, cache.new == new { return cache.diff }
+        // A few entries, so going back to a recent session does not parse and analyze it again.
+        if let index = structureCache.firstIndex(where: { $0.old == old && $0.new == new }) {
+            let hit = structureCache.remove(at: index)
+            structureCache.insert(hit, at: 0)
+            return hit.diff
+        }
         let diff = ConfigDiff.compute(old: old, new: new)
-        structureCache = (old, new, diff)
+        structureCache.insert((old, new, diff), at: 0)
+        if structureCache.count > 8 { structureCache.removeLast() }
         return diff
     }
 
@@ -176,6 +189,14 @@ final class EditorStore {
         diffCache.insert((old, new, lines), at: 0)
         if diffCache.count > 4 { diffCache.removeLast() }
         return lines
+    }
+
+    /// Long sessions open with their newest turns only, so switching to one costs about the same
+    /// as switching to a short one; older turns load a page at a time.
+    static let turnPage = 10
+
+    var visibleTurnCount: Int {
+        Self.turnPage * (1 + olderTurnPages) + max(0, (current?.turns.count ?? 0) - turnBaseline)
     }
 
     var draft: ConfigDocument? { current.flatMap { document(for: $0.draftText) } }
