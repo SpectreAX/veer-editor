@@ -441,37 +441,21 @@ public struct WebSearchService: RuleSearching {
         case .deepSeek:
             // https://api-docs.deepseek.com/guides/search/ — only the query is sent, not the user's instruction.
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有保存 DeepSeek 的 API Key（在上方 AI 服务中选择 DeepSeek 并保存）。") }
-            request = URLRequest(url: URL(string: "https://api.deepseek.com/v1/tools/search")!, timeoutInterval: 20)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": String(query.prefix(128)), "count": 8, "need_content": false])
+            request = try jsonPost("https://api.deepseek.com/v1/tools/search", key: key, body: ["query": String(query.prefix(128)), "count": 8, "need_content": false])
         case .zhipu:
             // https://docs.bigmodel.cn/api-reference/工具-api/网络搜索 — the cheapest engine, no intent rewriting.
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有保存智谱 GLM 的 API Key（在上方 AI 服务中选择智谱 GLM 并保存）。") }
-            request = URLRequest(url: URL(string: "https://open.bigmodel.cn/api/paas/v4/web_search")!, timeoutInterval: 20)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
+            request = try jsonPost("https://open.bigmodel.cn/api/paas/v4/web_search", key: key, body: [
                 "search_query": String(query.prefix(70)), "search_engine": "search_std", "search_intent": false,
                 "count": 8, "content_size": "medium",
-            ] as [String: Any])
+            ])
         case .perplexity:
             // https://docs.perplexity.ai/api-reference/search-post
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有设置 Perplexity 的 API Key。") }
-            request = URLRequest(url: URL(string: "https://api.perplexity.ai/search")!, timeoutInterval: 20)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "max_results": 5, "max_tokens_per_page": 256] as [String: Any])
+            request = try jsonPost("https://api.perplexity.ai/search", key: key, body: ["query": query, "max_results": 5, "max_tokens_per_page": 256])
         case .tavily:
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有设置 Tavily 的 API Key。") }
-            request = URLRequest(url: URL(string: "https://api.tavily.com/search")!, timeoutInterval: 20)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "max_results": 5, "search_depth": "basic"])
+            request = try jsonPost("https://api.tavily.com/search", key: key, body: ["query": query, "max_results": 5, "search_depth": "basic"])
         case .brave:
             guard let key = config.apiKey, !key.isEmpty else { throw AIFailure.invalidResponse("还没有设置 Brave Search 的 API Key。") }
             var components = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
@@ -489,6 +473,16 @@ public struct WebSearchService: RuleSearching {
             throw AIFailure.invalidResponse("未开启网页搜索。")
         }
         request.setValue("Veer AI Editor", forHTTPHeaderField: "User-Agent")
+        return request
+    }
+
+    /// The POST with a JSON body and a Bearer key that most search APIs take.
+    static func jsonPost(_ url: String, key: String, body: [String: Any]) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: url)!, timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
 

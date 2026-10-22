@@ -159,12 +159,17 @@ enum YAMLSplice {
                 throw EditorError("rule-providers 使用了单行（flow）格式，当前版本无法安全添加规则集。请改为多行格式后重试。")
             }
         } else {
-            let rendered = ["rule-providers:"] + additions.flatMap { renderProvider(key: $0.key, fields: $0.fields, indent: "  ", step: "  ") }
-            if let rules = document.topLevelKeys.first(where: { $0.key == "rules" }) {
-                lines.lines.insert(contentsOf: rendered, at: rules.line)
-            } else {
-                lines.lines.append(contentsOf: rendered)
-            }
+            insertSection(["rule-providers:"] + additions.flatMap { renderProvider(key: $0.key, fields: $0.fields, indent: "  ", step: "  ") },
+                          in: &lines, document: document)
+        }
+    }
+
+    /// A new top-level section goes before `rules` (or at the end when there are none).
+    static func insertSection(_ section: [String], in lines: inout SourceLines, document: ConfigDocument) {
+        if let rules = document.topLevelKeys.first(where: { $0.key == "rules" }) {
+            lines.lines.insert(contentsOf: section, at: rules.line)
+        } else {
+            lines.lines.append(contentsOf: section)
         }
     }
 
@@ -204,12 +209,7 @@ enum YAMLSplice {
                 throw EditorError("proxy-groups 使用了单行（flow）格式，当前版本无法安全新建策略组。请改为多行格式后重试。")
             }
         } else {
-            let rendered = ["proxy-groups:"] + (try renderGroups(additions, indent: "  "))
-            if let rules = document.topLevelKeys.first(where: { $0.key == "rules" }) {
-                lines.lines.insert(contentsOf: rendered, at: rules.line)
-            } else {
-                lines.lines.append(contentsOf: rendered)
-            }
+            insertSection(["proxy-groups:"] + (try renderGroups(additions, indent: "  ")), in: &lines, document: document)
         }
     }
 }

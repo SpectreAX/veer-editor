@@ -185,12 +185,10 @@ public struct AnonymizedConfig: Sendable {
 
     static func anonymize(rule: String, label: (String) -> String, providerNames: [String: String],
                           placeholder: (String, String) -> String) -> String {
-        guard let parsed = ProfileAnalysis.parseRule(rule) else { return "<无法解析的规则>" }
+        guard let parsed = RuleParts.parse(rule) else { return "<无法解析的规则>" }
         let type = parsed.type
         let target = label(parsed.target)
-        if type == "MATCH" { return "MATCH,\(target)" }
-        let parts = rule.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
-        let payload = parts.count > 1 ? parts[1] : ""
+        guard let payload = parsed.payload else { return "MATCH,\(target)" }
         let flags = rule.hasSuffix(",no-resolve") ? ",no-resolve" : ""
         let value: String
         switch type {

@@ -15,7 +15,7 @@ struct SystemPromptTests {
     }
 
     @Test func describesVeerNotOpenClashAndOnlyAnonymousExits() throws {
-        let (_, context) = try context()
+        _ = try context()
         let prompt = SystemPrompt.build(config: AnonymizedConfig.make(document: try ConfigDocument.parse(SampleConfig.text), regions: regionsOfSample()).yaml)
         #expect(prompt.contains("Veer 不是 OpenClash"))
         #expect(prompt.contains(#"{"understanding":"…","schemaVersion":1,"operations":[…]}"#))

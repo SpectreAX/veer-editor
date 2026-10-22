@@ -66,7 +66,6 @@ final class EditorStore {
     var importInput = ""
     @ObservationIgnored private var importTask: Task<Void, Never>?
     var showingExportSheet = false
-    var showingSettings = false
     var showingModelPopover = false
     var payloadTurnID: UUID? { didSet { if payloadTurnID == nil { payloadComparing = false } } }
     /// The payload sheet shows the side-by-side comparison instead of the sent text.

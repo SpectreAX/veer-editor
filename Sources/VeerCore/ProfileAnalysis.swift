@@ -100,7 +100,7 @@ public struct ProfileAnalysis: Sendable, Equatable {
         }
         let rawGroups = (root["proxy-groups"]?.sequence?.compactMap(\.mapping) ?? []).filter { $0["name"]?.string != nil }
         let groupNames = Set(rawGroups.compactMap { $0["name"]?.string })
-        let rules = (root["rules"]?.sequence?.compactMap(\.string) ?? []).compactMap(parseRule)
+        let rules = (root["rules"]?.sequence?.compactMap(\.string) ?? []).compactMap(RuleParts.parse)
 
         var references: [String: Int] = [:]
         for group in rawGroups { for member in Set(strings(group["proxies"])) { references[member, default: 0] += 1 } }
@@ -144,28 +144,6 @@ public struct ProfileAnalysis: Sendable, Equatable {
             proxyTypes: Dictionary(proxies.compactMap { proxy in proxy["name"]?.string.map { ($0, label(proxy["type"]?.string, in: protocolLabels, uppercaseFallback: true)) } },
                                    uniquingKeysWith: { a, _ in a })
         )
-    }
-
-    struct Rule { let type: String; let target: String }
-
-    /// Splits on top-level commas so logical rules like `AND,((DOMAIN,a.com),(NETWORK,UDP)),Proxy`
-    /// keep their payload. MATCH has its target second; every other rule third.
-    static func parseRule(_ line: String) -> Rule? {
-        var parts: [String] = [], current = "", depth = 0
-        for char in line.trimmingCharacters(in: .whitespaces) {
-            switch char {
-            case "(": depth += 1; current.append(char)
-            case ")": depth = max(0, depth - 1); current.append(char)
-            case "," where depth == 0: parts.append(current.trimmingCharacters(in: .whitespaces)); current = ""
-            default: current.append(char)
-            }
-        }
-        parts.append(current.trimmingCharacters(in: .whitespaces))
-        guard let first = parts.first, !first.isEmpty else { return nil }
-        let type = first.uppercased()
-        let index = type == "MATCH" ? 1 : 2
-        guard parts.count > index, !parts[index].isEmpty else { return nil }
-        return Rule(type: type, target: parts[index])
     }
 
     static func label(_ raw: String?, in table: [String: String], uppercaseFallback: Bool) -> String {

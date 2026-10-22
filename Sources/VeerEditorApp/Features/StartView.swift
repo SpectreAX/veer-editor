@@ -48,16 +48,22 @@ struct StartView: View {
                     .allowsHitTesting(false)
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+        .importsDroppedFile(into: store, isTargeted: $dropTargeted)
+        .animation(Motion.quick, value: dropTargeted)
+    }
+}
+
+extension View {
+    /// Imports a configuration file dropped onto this view.
+    func importsDroppedFile(into store: EditorStore, isTargeted: Binding<Bool>) -> some View {
+        onDrop(of: [.fileURL], isTargeted: isTargeted) { providers in
             guard let provider = providers.first else { return false }
-            let target: EditorStore = store
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url else { return }
-                Task { @MainActor in target.prepareImport(file: url) }
+                Task { @MainActor in store.prepareImport(file: url) }
             }
             return true
         }
-        .animation(Motion.quick, value: dropTargeted)
     }
 }
 

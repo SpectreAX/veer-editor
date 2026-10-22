@@ -122,7 +122,6 @@ public struct GeoSiteDatabase: Sendable {
     let keywords: [Ref]
     let regexes: [Ref]
     public var categoryCount: Int { categories.count }
-    public var categoryNames: [String] { categories }
 
     public init(data: Data) throws {
         var categories: [String] = []
@@ -297,7 +296,7 @@ public struct IPAddr: Sendable, Hashable, Comparable, CustomStringConvertible {
         }
         var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
         inet_ntop(AF_INET6, &address, &text, socklen_t(text.count))
-        return String(cString: text)
+        return String(decoding: text.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     /// `address/prefix` with host bits cleared, for an IP-CIDR rule.

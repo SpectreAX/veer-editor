@@ -68,15 +68,7 @@ struct ImportInputView: View {
             .background(Color.codeBackground, in: RoundedRectangle(cornerRadius: Radius.medium))
             .overlay(RoundedRectangle(cornerRadius: Radius.medium)
                 .strokeBorder(dropTargeted ? Color.veerAccent : Color.separatorLine, style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: dropTargeted ? [6, 4] : [])))
-            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-                guard let provider = providers.first else { return false }
-                let target: EditorStore = store
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    Task { @MainActor in target.prepareImport(file: url) }
-                }
-                return true
-            }
+            .importsDroppedFile(into: store, isTargeted: $dropTargeted)
             HStack(spacing: Spacing.sm) {
                 Image(systemName: detected == nil ? "doc.on.clipboard" : detected?.ok == false ? "exclamationmark.triangle" : "checkmark.circle")
                     .foregroundStyle(detected == nil ? Color.secondary : detected?.ok == false ? Color.statusWarning : Color.veerAccent)

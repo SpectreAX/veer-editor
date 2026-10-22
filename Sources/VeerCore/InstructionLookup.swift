@@ -69,7 +69,6 @@ public struct InstructionLookup: Sendable {
         self.index = index
     }
 
-    static let domainPattern = #"\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\b"#
     static let addressPattern = #"(?<![0-9a-f:./])(?:\d{1,3}\.){3}\d{1,3}(?![0-9./])|(?<![0-9a-z:/])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![0-9a-z:/])"#
 
     /// nil when the geodata is not downloaded or the instruction names no domain or address.
@@ -79,10 +78,10 @@ public struct InstructionLookup: Sendable {
         var scan = prompt.lowercased()
         for name in exitNames.sorted(by: { $0.count > $1.count }) { scan = scan.replacingOccurrences(of: name.lowercased(), with: " ") }
         var domains: [String] = [], addresses: [IPAddr] = []
-        for match in Self.matches(Self.domainPattern, in: scan) where !domains.contains(match) && domains.count < 6 {
+        for match in LocalIntentParser.matchesOf(LocalIntentParser.domainPattern, in: scan) where !domains.contains(match) && domains.count < 6 {
             if GeoLookup.domain(in: match) != nil { domains.append(match) }
         }
-        for match in Self.matches(Self.addressPattern, in: scan) {
+        for match in LocalIntentParser.matchesOf(Self.addressPattern, in: scan) {
             guard let address = IPAddr(match), !addresses.contains(address), addresses.count < 4 else { continue }
             addresses.append(address)
         }
@@ -116,11 +115,5 @@ public struct InstructionLookup: Sendable {
     static func ownSet(for domain: String, in hits: [GeoSiteHit]) -> String? {
         let labels = Set(domain.split(separator: ".").map(String.init))
         return hits.first { !$0.isBroad && !$0.name.contains("@") && labels.contains($0.name) }?.name
-    }
-
-    static func matches(_ pattern: String, in text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [] }
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
     }
 }

@@ -40,9 +40,6 @@ public enum ShareLinkParser {
         public var skipped: [String: Int]
     }
 
-    public static let supportedSchemes = ["ss", "ssr", "vmess", "vless", "trojan", "hysteria", "hysteria2", "hy2", "tuic",
-                                          "socks", "socks5", "socks5h", "http", "https", "anytls"]
-
     public static func parse(_ text: String) -> Result {
         var result = Result(proxies: [], skipped: [:])
         for raw in text.components(separatedBy: .newlines) {

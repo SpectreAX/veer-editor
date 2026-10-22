@@ -58,12 +58,11 @@ public struct ConfigDiff: Sendable, Equatable {
         var rules: [RuleChange] = []
         let lines = LineDiff.diff(oldRules.joined(separator: "\n"), newRules.joined(separator: "\n"))
         for line in lines where line.kind != .same {
-            let parts = line.text.split(separator: ",", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
-            let parsed = ProfileAnalysis.parseRule(line.text)
+            let parsed = RuleParts.parse(line.text)
             rules.append(RuleChange(kind: line.kind == .added ? .added : .removed,
                                     position: (line.kind == .added ? line.newNumber : line.oldNumber) ?? 0,
-                                    rule: line.text, type: parsed?.type ?? parts.first ?? "",
-                                    payload: parsed?.type == "MATCH" ? "" : (parts.count > 1 ? parts[1] : ""), target: parsed?.target ?? ""))
+                                    rule: line.text, type: parsed?.type ?? String(line.text.prefix { $0 != "," }),
+                                    payload: parsed?.payload ?? "", target: parsed?.target ?? ""))
         }
         let oldProviders = Set(oldDoc?.providers.map(\.key) ?? []), newProviders = newDoc?.providers.map(\.key) ?? []
         return ConfigDiff(groupsAdded: added, groupsRemoved: removed, groupsChanged: changed, rules: rules,

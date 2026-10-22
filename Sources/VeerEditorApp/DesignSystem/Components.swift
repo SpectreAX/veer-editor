@@ -141,20 +141,6 @@ struct StateView: View {
     }
 }
 
-/// Uppercase-free section header used in the inspector and settings.
-struct SectionHeader: View {
-    let title: String
-    var detail: String?
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.headline)
-            Spacer()
-            if let detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
-        }
-    }
-}
-
 /// Exit name with its region and kind, used in lists and completions.
 struct ExitLabel: View {
     let name: String

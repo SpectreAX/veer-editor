@@ -89,6 +89,8 @@ public enum LocalIntentParser {
         return Region.allCases.first { $0.instructionPattern.map(clause.matches) ?? false }?.displayName
     }
 
+    static let domainPattern = #"\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\b"#
+
     static let outOfScopePattern = #"延迟|太卡|很卡|卡顿|最快|测速|ping|latency|slow|fastest|换个?节点|换一个|切换节点|开启?vpn|启动vpn|关闭vpn|连接代理|断开"#
 
     public static let outOfScopeMessage = "我只编辑分流规则，不能测速、启动 VPN 或切换运行中的节点。你可以指定一个出口，例如“YouTube 走香港”。"
@@ -124,7 +126,7 @@ public enum LocalIntentParser {
             // Strip exit names before looking for domains so names like "hk.example" don't count.
             var scan = clause
             for name in exits.map(\.name).sorted(by: { $0.count > $1.count }) { scan = scan.replacingOccurrences(of: name, with: " ") }
-            let domains = matchesOf(#"\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}\b"#, in: scan).map { $0.lowercased() }
+            let domains = matchesOf(domainPattern, in: scan).map { $0.lowercased() }
             // IP addresses and networks: 10.0.0.0/8, 192.168.1.1, 2001:db8::/32.
             let networks = ipNetworks(in: scan)
             let geosites = domains.isEmpty && networks.isEmpty ? services.filter { scan.matches($0.pattern) }.map(\.geosite) : []
