@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VeerCore
 
@@ -15,21 +16,6 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: Binding(get: { store.showingStart ? nil : store.selectedID }, set: { if let id = $0 { store.select(id) } })) {
-            Section {
-                Button { store.newImport() } label: {
-                    // Not a Label: sidebar lists recolor Label icons with the system accent.
-                    HStack(spacing: Spacing.sm) {
-                        Image(systemName: "plus")
-                        Text("新建导入")
-                    }
-                    .foregroundStyle(Color.veerAccent)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .help("导入新的配置（⌘N）")
-                .tint(.veerAccent)
-            }
             Section("会话") {
                 if store.sessions.isEmpty {
                     Text("还没有会话").font(.callout).foregroundStyle(.secondary)
@@ -42,8 +28,26 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .searchable(text: $search, placement: .sidebar, prompt: "搜索会话")
+        .safeAreaInset(edge: .top) { header }
         .safeAreaInset(edge: .bottom) { footer }
+    }
+
+    /// Search and the new-import action share one row above the list.
+    private var header: some View {
+        HStack(spacing: Spacing.sm) {
+            SidebarSearchField(text: $search, prompt: "搜索会话")
+            Button { store.newImport() } label: {
+                Image(systemName: "plus").fontWeight(.semibold).foregroundStyle(Color.veerAccent)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .controlSize(.large)
+            .tint(.veerAccent)
+            .help("新建导入（⌘N）")
+            .accessibilityLabel("新建导入")
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.bottom, Spacing.sm)
     }
 
     private func row(_ session: Session) -> some View {
@@ -91,5 +95,43 @@ struct SidebarView: View {
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.bottom, Spacing.md)
+    }
+}
+
+/// The system search field (magnifier, clear button, Esc to clear) without `.searchable`, so other
+/// controls can sit on the same row.
+private struct SidebarSearchField: NSViewRepresentable {
+    @Binding var text: String
+    let prompt: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = prompt
+        field.controlSize = .large
+        field.sendsSearchStringImmediately = true
+        field.delegate = context.coordinator
+        // The clear button sends the action, not a text-change notification.
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searched(_:))
+        field.setAccessibilityLabel(prompt)
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        let text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        @objc func searched(_ field: NSSearchField) { text.wrappedValue = field.stringValue }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
     }
 }

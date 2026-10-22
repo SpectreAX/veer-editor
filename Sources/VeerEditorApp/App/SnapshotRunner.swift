@@ -242,6 +242,12 @@ enum SnapshotRunner {
         store.sessionKey = "sk-snapshot"
         store.useAI = true
         await shot("28-model-choice")
+        store.searchSettings.enabled = false
+        await shot("28-search-off")
+        store.searchSettings.enabled = true
+        // The longest composer row at the smallest window: the pills shorten instead of overflowing.
+        store.inspectorPresented = true
+        await shot("28-minimum-ai", size: Metrics.minWindow)
         NSApp.activate()
         store.showingModelPopover = true
         await settle(1.8)

@@ -64,6 +64,58 @@ struct Chip: View {
     }
 }
 
+/// On / off pill for a composer option. Off it matches the neutral mode pill beside it; on it takes
+/// an accent wash, edge and text, so the state reads from more than color alone (also announced as
+/// selected).
+struct ToggleChip: View {
+    let title: String
+    let symbol: String
+    @Binding var isOn: Bool
+    /// Icon only, for narrow rows; the title stays as the accessibility label.
+    var compact = false
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovering = false
+
+    var body: some View {
+        Button { isOn.toggle() } label: {
+            Label(title, systemImage: symbol)
+                .labelStyle(.adaptive(compact))
+                .font(.callout)
+                .foregroundStyle(isOn && isEnabled ? Color.veerAccent : isEnabled ? Color.primary : Color.secondary)
+                .padding(.horizontal, Spacing.sm + Spacing.xxs)
+                .padding(.vertical, Spacing.xs)
+                .background(background, in: Capsule())
+                .overlay(Capsule().strokeBorder(isOn && isEnabled ? Color.veerAccent.opacity(0.4) : .clear))
+                .opacity(isEnabled ? 1 : 0.6)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .onHover { hovering = $0 }
+        .animation(Motion.quick, value: isOn)
+        .animation(Motion.quick, value: hovering)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private var background: Color {
+        guard isEnabled else { return Color.primary.opacity(0.06) }
+        if isOn { return Color.veerAccent.opacity(hovering ? 0.2 : 0.14) }
+        return Color.primary.opacity(hovering ? 0.1 : 0.06)
+    }
+}
+
+private struct AdaptiveLabelStyle: LabelStyle {
+    let iconOnly: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        if iconOnly { configuration.icon } else { Label(configuration) }
+    }
+}
+
+extension LabelStyle where Self == AdaptiveLabelStyle {
+    static func adaptive(_ iconOnly: Bool) -> AdaptiveLabelStyle { AdaptiveLabelStyle(iconOnly: iconOnly) }
+}
+
 /// Centered empty / error / informational state with an optional action.
 struct StateView: View {
     let symbol: String

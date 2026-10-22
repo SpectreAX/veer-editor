@@ -72,9 +72,13 @@ struct ComposerView: View {
                     .accessibilityLabel("分流指令")
                 }
                 HStack(spacing: Spacing.sm) {
-                    modeMenu
-                    Spacer()
-                    Text("请勿粘贴密钥或订阅链接").font(.caption).foregroundStyle(.tertiary)
+                    // Narrow windows drop the hint first, then shorten the pills.
+                    ViewThatFits(in: .horizontal) {
+                        options(compactMode: false, compactSearch: false, hint: true)
+                        options(compactMode: false, compactSearch: false, hint: false)
+                        options(compactMode: false, compactSearch: true, hint: false)
+                        options(compactMode: true, compactSearch: true, hint: false)
+                    }
                     if store.isRunning {
                         Button { store.cancel() } label: { Image(systemName: "stop.fill") }
                             .help("停止生成（⌘.）").accessibilityLabel("停止生成")
@@ -105,12 +109,30 @@ struct ComposerView: View {
         .onChange(of: query?.text) { highlighted = 0 }
     }
 
-    private var modeMenu: some View {
+    private func options(compactMode: Bool, compactSearch: Bool, hint: Bool) -> some View {
         @Bindable var store = store
+        return HStack(spacing: Spacing.sm) {
+            modeMenu(compact: compactMode)
+            ToggleChip(title: "联网搜索", symbol: "globe", isOn: $store.searchSettings.enabled, compact: compactSearch)
+                .disabled(!store.effectiveUseAI)
+                .help(store.effectiveUseAI
+                      ? (store.searchSettings.enabled ? "AI 可以联网搜索规则集和官方域名（点按关闭）" : "开启后 AI 可以联网搜索规则集和官方域名")
+                      : "联网搜索只在 AI 解析时可用")
+            Spacer(minLength: 0)
+            if hint {
+                Text("请勿粘贴密钥或订阅链接").font(.caption).foregroundStyle(.tertiary).fixedSize()
+            }
+        }
+    }
+
+    private func modeMenu(compact: Bool) -> some View {
+        @Bindable var store = store
+        let title = store.effectiveUseAI ? (compact ? "AI" : "AI · \(store.settings.modelLabel)")
+            : (store.useAI && !compact ? "本地解析 · 配置 AI" : "本地解析")
         return Button { store.showingModelPopover.toggle() } label: {
-            Label(store.effectiveUseAI ? "AI · \(store.settings.modelLabel)" : (store.useAI ? "本地解析 · 配置 AI" : "本地解析"),
-                  systemImage: store.effectiveUseAI ? (store.settings.thinks ? "brain" : "sparkles") : "text.magnifyingglass")
+            Label(title, systemImage: store.effectiveUseAI ? (store.settings.thinks ? "brain" : "sparkles") : "text.magnifyingglass")
                 .font(.callout)
+                .lineLimit(1)
                 .padding(.horizontal, Spacing.sm + Spacing.xxs)
                 .padding(.vertical, Spacing.xs)
                 .background(Color.primary.opacity(0.06), in: Capsule())
@@ -118,7 +140,7 @@ struct ComposerView: View {
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help("选择解析方式、模型与思考强度")
+        .help(store.effectiveUseAI ? "AI · \(store.settings.modelLabel)。选择解析方式、模型与思考强度" : "选择解析方式、模型与思考强度")
         .popover(isPresented: $store.showingModelPopover, arrowEdge: .top) {
             ModelPopover {
                 store.showingModelPopover = false
