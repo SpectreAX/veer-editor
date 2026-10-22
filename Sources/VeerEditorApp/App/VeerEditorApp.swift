@@ -87,7 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let store, store.hasUnexportedSessions, ProcessInfo.processInfo.environment["VEER_SNAPSHOT_DIR"] == nil else {
+        // Snapshot and profiling runs quit on their own and never ask.
+        let unattended = ProcessInfo.processInfo.environment["VEER_SNAPSHOT_DIR"] != nil || SwitchProfiler.directory != nil
+        guard let store, store.hasUnexportedSessions, !unattended else {
             store?.flush()
             return .terminateNow
         }

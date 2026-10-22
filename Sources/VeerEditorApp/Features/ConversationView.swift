@@ -17,6 +17,7 @@ struct ConversationView: View {
                     if turns.isEmpty { emptyState }
                     if hidden > 0, let first = turns.first?.id {
                         Button {
+                            followsBottom = false
                             store.olderTurnPages += 1
                             // Keep the turn that was at the top in place instead of jumping to the oldest.
                             DispatchQueue.main.async { proxy.scrollTo(first, anchor: .top) }
@@ -39,27 +40,30 @@ struct ConversationView: View {
                 .frame(maxWidth: Metrics.readingWidth)
                 .frame(maxWidth: .infinity)
             }
+            // A scroll view per session, opening at the newest turn. Reusing one kept the previous
+            // session's scroll position, which can lie past the end of a shorter session's content
+            // and left the conversation blank.
+            .defaultScrollAnchor(.bottom)
             .scrollEdgeEffectStyle(.soft, for: .bottom)
             .onScrollGeometryChange(for: BottomTracking.self) { geometry in
-                BottomTracking(offset: geometry.contentOffset.y, contentHeight: geometry.contentSize.height,
-                               containerHeight: geometry.containerSize.height,
-                               atBottom: geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40)
-            } action: { old, new in
-                if new.atBottom {
-                    followsBottom = true
-                } else if new.contentHeight != old.contentHeight || new.containerHeight != old.containerHeight {
-                    // Content grew (a step finished, a result arrived) or the window was resized:
-                    // keep the newest turn in view if we were following it.
-                    if followsBottom || old.atBottom {
-                        followsBottom = true
-                        proxy.scrollTo("bottom", anchor: .bottom)
-                    }
-                } else if new.offset < old.offset - 1 {
-                    // Moved up with the same content: the user is reading older turns. An animated
-                    // scroll toward the bottom only ever moves down, so it never lands here.
-                    followsBottom = false
-                }
+                BottomTracking(contentHeight: geometry.contentSize.height, containerHeight: geometry.containerSize.height)
+            } action: { _, _ in
+                // Content grew (a step finished, a result arrived), a lazy turn was measured, or the
+                // window was resized: stay on the newest turn if we were following it. Layout never
+                // decides that the user left the bottom; only their own scrolling does (below).
+                if followsBottom { proxy.scrollTo("bottom", anchor: .bottom) }
             }
+            .onScrollPhaseChange { old, new, context in
+                // The user finished scrolling (trackpad, wheel, scroll bar): follow the newest turn
+                // again only if they ended at the bottom. Programmatic scrolls animate and are ignored.
+                guard new == .idle, [.interacting, .decelerating, .tracking].contains(old) else { return }
+                let geometry = context.geometry
+                followsBottom = geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40
+                    || geometry.contentSize.height <= geometry.containerSize.height + 1
+            }
+            // After the geometry tracking, so a new session's scroll view is not compared with the
+            // previous one's position.
+            .id(store.selectedID)
             .onChange(of: store.conversationToken) {
                 if followsBottom { withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
@@ -69,7 +73,7 @@ struct ConversationView: View {
                 followsBottom = true
                 withAnimation(Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
-            .onChange(of: store.selectedID) { followsBottom = true; proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: store.selectedID) { followsBottom = true }
             .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ComposerView()
@@ -129,10 +133,8 @@ struct ConversationView: View {
 }
 
 private struct BottomTracking: Equatable {
-    var offset: CGFloat
     var contentHeight: CGFloat
     var containerHeight: CGFloat
-    var atBottom: Bool
 }
 
 /// Wrapping horizontal layout for chips.
