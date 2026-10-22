@@ -57,6 +57,9 @@ struct AssistantTurn: View {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("AI 的理解：\(understanding)")
             }
+            if let lookups = turn.lookups {
+                LookupHintsView(hints: lookups, local: turn.mode == .local)
+            }
             if let searches = turn.searches, !searches.isEmpty {
                 SearchRecordsView(records: searches, running: turn.outcome == .running)
             }
@@ -666,6 +669,75 @@ struct ReasoningView: View {
 }
 
 /// The searches the model asked for: each query, the rule sets it matched and the pages found.
+/// What the local geodata said about the instruction's domains and IPs. Expanded when it holds
+/// an IP suggestion the user may want to act on.
+struct LookupHintsView: View {
+    @Environment(EditorStore.self) private var store
+    let hints: LookupHints
+    /// Local parsing used the sites' own rule sets; with AI they were sent along.
+    let local: Bool
+    @State private var expanded: Bool?
+
+    private var suggestsNetwork: Bool { hints.addresses.contains { $0.network != nil && !$0.isPrivate && !$0.isFakeIP } }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: Binding(get: { expanded ?? suggestsNetwork }, set: { expanded = $0 })) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                ForEach(hints.domains, id: \.domain) { entry in
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
+                        Text(entry.domain).font(Typography.codeSmall).textSelection(.enabled)
+                        if entry.ownSet == nil && entry.others.isEmpty && entry.broad.isEmpty {
+                            Text("没有规则集包含它，按域名写规则。").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            FlowLayout(spacing: Spacing.xs) {
+                                if let own = entry.ownSet { Tag(text: "自己的规则集 \(own)", tint: .statusSuccess) }
+                                ForEach(entry.others, id: \.self) { Tag(text: $0) }
+                                ForEach(entry.broad, id: \.self) { Tag(text: "\($0)（宽泛）") }
+                            }
+                            if entry.ownSet != nil, local {
+                                Text("本地解析用它代替单条 DOMAIN-SUFFIX，覆盖这个网站的全部域名。").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                ForEach(hints.addresses, id: \.address) { entry in
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
+                        Text(entry.address).font(Typography.codeSmall).textSelection(.enabled)
+                        if entry.isFakeIP {
+                            Text("代理分配的 Fake-IP，不是网站的真实地址。").font(.caption).foregroundStyle(Color.statusWarning)
+                        } else if entry.isPrivate {
+                            Text("局域网地址。").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            if let asn = entry.asn {
+                                Text(verbatim: "AS\(asn) \(entry.organization ?? "") · 网段 \(entry.network ?? "")").font(.caption).foregroundStyle(.secondary)
+                            }
+                            if !entry.geoip.isEmpty {
+                                FlowLayout(spacing: Spacing.xs) { ForEach(entry.geoip, id: \.self) { Tag(text: "geoip/\($0)") } }
+                            }
+                            if let network = entry.network {
+                                HStack(spacing: Spacing.sm) {
+                                    Text("这一轮只写这个地址。").font(.caption).foregroundStyle(.secondary)
+                                    Button("按网段 \(network) 分流…") { store.draftInstruction("\(network) 走 ") }
+                                        .buttonStyle(.link).foregroundStyle(Color.veerAccent).font(.caption)
+                                        .disabled(store.isRunning)
+                                        .help("在输入框写好“\(network) 走 ”，再选择出口")
+                                }
+                            }
+                        }
+                    }
+                }
+                Text(local ? "Veer 在本机 MetaCubeX 地理数据中查到。" : "Veer 在本机 MetaCubeX 地理数据中查到，并随指令发给了 AI。")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.subtleFill, in: RoundedRectangle(cornerRadius: Radius.small))
+        } label: {
+            Label("本机查询 \(hints.domains.count + hints.addresses.count) 项", systemImage: "magnifyingglass.circle").font(.callout)
+        }
+    }
+}
+
 struct SearchRecordsView: View {
     let records: [SearchRecord]
     let running: Bool

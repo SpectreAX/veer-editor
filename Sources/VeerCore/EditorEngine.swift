@@ -25,6 +25,8 @@ public struct EditorEngine: Sendable {
         case searching([String])
         /// What the searches found (also sent back to the model).
         case searched([SearchRecord])
+        /// What the local geodata says about the instruction's domains and IPs.
+        case lookedUp(LookupHints)
     }
 
     /// How many times an unusable AI answer is sent back with its error before giving up.
@@ -61,9 +63,12 @@ public struct EditorEngine: Sendable {
     public let validator: ConfigValidating
     let verifier: RuleSetVerifying
     let searcher: RuleSearching
+    /// Local geodata lookups for the instruction's domains and IPs; nil skips them.
+    let lookup: InstructionLookup?
 
     public init(ai: AIClient = AIClient(), validator: ConfigValidating = MihomoValidator(), verifier: RuleSetVerifying = NetworkRuleSetVerifier(),
-                searcher: RuleSearching = WebSearchService()) {
+                searcher: RuleSearching = WebSearchService(), lookup: InstructionLookup? = nil) {
+        self.lookup = lookup
         self.ai = ai
         self.validator = validator
         self.verifier = verifier
@@ -88,15 +93,19 @@ public struct EditorEngine: Sendable {
             await progress(.finished(0, detail: "超出编辑范围"))
             return .outOfScope(LocalIntentParser.outOfScopeMessage)
         }
+        let hints = await lookup?.hints(for: request.prompt, exitNames: request.draft.targets.map(\.name))
+        if let hints { await progress(.lookedUp(hints)) }
         guard request.useAI else {
-            let reply = try LocalIntentParser.parse(request.prompt, targets: request.draft.targets, regions: request.regions, rules: request.draft.rules)
+            let reply = try LocalIntentParser.parse(request.prompt, targets: request.draft.targets, regions: request.regions,
+                                                    rules: request.draft.rules, ownSets: hints?.ownSets ?? [:])
             await progress(.finished(0, detail: "本地解析"))
             return try await handle(reply, request: request, progress: progress)
         }
 
         let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
         let system = AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil)
-        let prompt = anonymized.context.anonymize(request.prompt)
+        // Lookup results travel with the instruction (and are anonymized with it).
+        let prompt = anonymized.context.anonymize(request.prompt + (hints.map { "\n\n" + $0.message } ?? ""))
         let model = request.settings.modelLabel
         var followUps: [(role: String, content: String)] = []
         var attempt = 0

@@ -98,7 +98,10 @@ public enum LocalIntentParser {
 
     /// `rules` are the draft's current rules; deleting a service ("删除 Netflix 规则") removes the
     /// rule-set and GEOSITE rules that actually exist for it.
-    public static func parse(_ prompt: String, targets: [Target], regions: [String: Region], rules: [String] = []) throws -> AssistantReply {
+    /// `ownSets` maps a domain to the site's own MetaCubeX geosite set (from local geodata); such
+    /// a domain is routed by that set instead of a single DOMAIN-SUFFIX rule.
+    public static func parse(_ prompt: String, targets: [Target], regions: [String: Region], rules: [String] = [],
+                             ownSets: [String: String] = [:]) throws -> AssistantReply {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw EditorError("请输入希望修改的分流，例如“Netflix 走日本”。") }
         if isOutOfScope(trimmed) { return .outOfScope(outOfScopeMessage) }
@@ -148,8 +151,13 @@ public enum LocalIntentParser {
                 continue
             }
 
+            // Domains and addresses are not exit words: "jal.co.jp" must not read as Japan.
+            var exitClause = clause
+            for literal in domains + networks.map(\.cidr) + networks.map({ String($0.cidr.split(separator: "/")[0]) }) {
+                exitClause = exitClause.replacingOccurrences(of: literal, with: " ", options: .caseInsensitive)
+            }
             let targetID: String
-            switch try resolveExit(clause, targets: targets, regions: regions, defaultReject: geosites == ["category-ads-all"]) {
+            switch try resolveExit(exitClause, targets: targets, regions: regions, defaultReject: geosites == ["category-ads-all"]) {
             case .target(let found): targetID = found.id
             case let .newGroup(groupRegions, members, excluded):
                 // One service, several regions or exits: a group named after the service holds them all.
@@ -166,7 +174,14 @@ public enum LocalIntentParser {
                     ClarifyOption(label: $0, prompt: resolved(trimmed, clause: clause, exit: $0, exitNames: exitNames))
                 })
             }
-            for domain in domains { operations.append(.route(matchType: "DOMAIN-SUFFIX", match: domain, targetId: targetID)) }
+            for domain in domains {
+                if let set = ownSets[domain] {
+                    let operation = EditPlan.Operation.ruleSet(catalog(set), targetId: targetID)
+                    if !operations.contains(operation) { operations.append(operation) }
+                } else {
+                    operations.append(.route(matchType: "DOMAIN-SUFFIX", match: domain, targetId: targetID))
+                }
+            }
             for network in networks {
                 operations.append(.route(matchType: network.type, match: network.cidr, targetId: targetID))
             }

@@ -326,6 +326,13 @@ enum SnapshotRunner {
         }
         lookup.orderOut(nil)
         await settle(0.3)
+        // Local parsing with geodata: a domain goes by its site's own rule set, an IP gets network advice.
+        if ProcessInfo.processInfo.environment["VEER_SNAPSHOT_GEODATA"] != nil {
+            store.useAI = false
+            store.send("api.openai.com 和 1.1.1.1 走美国")
+            await waitIdle(store)
+            await shot("32-local-lookup")
+        }
         store.useAI = false
         store.sessionKey = nil
         store.selectProvider(.deepSeek)

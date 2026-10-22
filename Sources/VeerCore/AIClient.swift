@@ -54,6 +54,8 @@ public struct AIRequestPayload: Sendable, Codable, Hashable {
     public var sourceDigest: String?
     /// Whether literal domains and IPs were sent as they are.
     public var shareRuleLiterals: Bool?
+    /// Local lookup results sent after the instruction.
+    public var lookups: String?
 
     public init(model: String, exits: [String], history: [String], instruction: String, system: String? = nil, config: String? = nil) {
         self.model = model
@@ -77,6 +79,7 @@ public struct AIRequestPayload: Sendable, Codable, Hashable {
         }
         if !history.isEmpty { text += "\n\n此前对话（已匿名）：\n" + history.map { "· \($0)" }.joined(separator: "\n") }
         text += "\n\n指令：\n\(instruction)"
+        if let lookups { text += "\n\n\(lookups)" }
         return text
     }
 }

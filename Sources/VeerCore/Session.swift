@@ -151,6 +151,8 @@ public struct Turn: Codable, Identifiable, Sendable, Equatable {
     public var repairedFrom: String?
     /// Searches the model asked for, with what they found (also sent to the model).
     public var searches: [SearchRecord]?
+    /// Local lookups of the instruction's domains and IPs.
+    public var lookups: LookupHints?
 
     public init(prompt: String, mode: Mode, steps: [Step], outcome: Outcome = .running, now: Date = .now) {
         id = UUID()
