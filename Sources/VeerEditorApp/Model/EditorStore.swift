@@ -4,7 +4,7 @@ import SwiftUI
 import VeerCore
 
 enum InspectorTab: String, CaseIterable, Identifiable {
-    case changes, rules, test, exits
+    case changes, rules, test, exits, health
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -12,6 +12,7 @@ enum InspectorTab: String, CaseIterable, Identifiable {
         case .rules: "规则"
         case .test: "测试"
         case .exits: "出口"
+        case .health: "体检"
         }
     }
 }
@@ -120,6 +121,7 @@ final class EditorStore {
     @ObservationIgnored private var addedCache: (original: String, draft: String, value: Set<String>)?
     @ObservationIgnored private var diffCache: [(old: String, new: String, lines: [DiffLine])] = []
     @ObservationIgnored private var structureCache: [(old: String, new: String, diff: ConfigDiff)] = []
+    @ObservationIgnored private var healthCache: (draft: String, findings: [HealthFinding])?
     /// Changes tab: visual cards (default) or the YAML line diff.
     var changesVisual = true
     /// The new group being edited from a review card.
@@ -543,6 +545,38 @@ final class EditorStore {
         }
     }
 
+    /// Problems the health check proves in the current draft (cached per draft text).
+    var healthFindings: [HealthFinding] {
+        guard let text = current?.draftText else { return [] }
+        if let cache = healthCache, cache.draft == text { return cache.findings }
+        let findings = ConfigHealthCheck.run(text)
+        healthCache = (text, findings)
+        return findings
+    }
+
+    /// Turns the safe fixes of `findings` into one proposal: the same apply, Mihomo check and review
+    /// card as any other edit. Nothing reaches the draft until the user writes it.
+    func fixHealth(_ findings: [HealthFinding]) {
+        guard var session = current, let draft, !isRunning else { return }
+        var operations: [EditPlan.Operation] = []
+        for op in findings.flatMap(\.fix) where !operations.contains(op) { operations.append(op) }
+        guard !operations.isEmpty else { return }
+        let limited = operations.count > 32
+        if limited { operations = Array(operations.prefix(32)) }
+        let prompt = findings.count == 1
+            ? "配置体检：\(findings[0].fixTitle ?? "修复") · \(findings[0].subject)"
+            : "配置体检：修复 \(findings.count) 个问题" + (limited ? "（一次最多 32 项，其余请再修复一次）" : "")
+        let steps = EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: .waiting) }
+        let turn = Turn(prompt: prompt, mode: .local, steps: steps)
+        session.turns.append(turn)
+        session.updatedAt = .now
+        current = session
+        let engine = engine, plan = EditPlan(operations: operations), regions = regions
+        startTurn(sessionID: session.id, turnID: turn.id, draftText: draft.text) { progress in
+            try await engine.run(plan: plan, draft: draft, regions: regions, progress: progress)
+        }
+    }
+
     private func startTurn(sessionID: UUID, turnID: UUID, draftText: String,
                            work: @escaping @Sendable (@escaping @Sendable (EditorEngine.Progress) async -> Void) async throws -> EditorEngine.Output) {
         let started = Date()
@@ -571,8 +605,9 @@ final class EditorStore {
         case "/export": requestExport()
         case "/rules": inspectorPresented = true; inspectorTab = .rules
         case "/ruleset": showingRuleSetSheet = true
+        case "/体检": inspectorPresented = true; inspectorTab = .health
         default:
-            showToast("未知命令 \(parts[0])。可用：/test、/ruleset、/undo、/redo、/export、/rules")
+            showToast("未知命令 \(parts[0])。可用：/test、/体检、/ruleset、/undo、/redo、/export、/rules")
         }
         return true
     }
@@ -592,7 +627,7 @@ final class EditorStore {
                 let summary = proposal.items.filter { proposal.accepted.contains($0.id) }.map { item -> String in
                     if let group = item.group { return "新建策略组“\(group.name)”（\(group.regionCounts.keys.sorted().joined(separator: "、"))）" }
                     let target = item.targetID.flatMap(anon.label(forTargetID:)) ?? item.targetName ?? "删除"
-                    return "\(item.subject) → \(item.kind == .removeRule ? "删除" : target)"
+                    return "\(item.subject) → \([.removeRule, .removeProvider].contains(item.kind) ? "删除" : target)"
                 }.joined(separator: "；")
                 reply = "\(proposal.status == .written ? "已写入草稿" : "已提出修改")：\(summary)"
             case .clarification(let question, _), .clarify(let question, _): reply = question

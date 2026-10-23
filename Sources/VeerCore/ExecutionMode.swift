@@ -50,7 +50,7 @@ public enum ExecutionMode: String, Sendable, Codable, CaseIterable, Identifiable
                 switch item.kind {
                 case .route: return true
                 case .ruleSet: return !(item.provider.flatMap { MetaCubeXSet(url: $0.url) }.map { GeoSiteHit.isBroad($0.name) } ?? false)
-                case .removeRule, .group: return false
+                case .removeRule, .group, .removeProvider: return false
                 }
             }
         }

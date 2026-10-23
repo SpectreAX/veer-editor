@@ -19,6 +19,7 @@ struct InspectorView: View {
                 case .rules: RulesTab()
                 case .test: TestTab()
                 case .exits: ExitsTab()
+                case .health: HealthTab()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

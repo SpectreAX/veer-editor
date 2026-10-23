@@ -3,7 +3,7 @@ import Yams
 
 /// One reviewable change produced from one plan operation.
 public struct ChangeItem: Identifiable, Sendable, Codable, Hashable {
-    public enum Kind: String, Sendable, Codable { case route, removeRule, ruleSet, group }
+    public enum Kind: String, Sendable, Codable { case route, removeRule, ruleSet, group, removeProvider }
 
     /// A proxy group the plan creates.
     public struct GroupInfo: Sendable, Codable, Hashable {
@@ -119,10 +119,33 @@ public enum PlanApplier {
         // 2. Validate every operation and build the items, even rejected ones, so the UI can list them.
         var items: [ChangeItem] = []
         var touched = Set<String>()
+        // Health-check removals: item id → rule index, and provider keys.
+        var ruleRemovals: [Int: Int] = [:]
+        var providerRemovals: [Int: String] = [:]
         let lowerRules = base.rules.map { $0.lowercased() }
         for (index, op) in plan.operations.enumerated() {
             let matchType: String, match: String, targetID: String?
             switch op {
+            case let .removeRuleAt(position, rule):
+                guard base.rules.indices.contains(position), base.rules[position] == rule else {
+                    throw EditorError("草稿的第 \(position + 1) 条规则已经变化，请重新体检。")
+                }
+                guard touched.insert("#\(position)").inserted else { throw EditorError("计划重复删除了第 \(position + 1) 条规则。") }
+                let parts = RuleParts.parse(rule)
+                ruleRemovals[index] = position
+                items.append(ChangeItem(id: index, kind: .removeRule, subject: parts?.payload ?? rule, matchType: parts?.type ?? "",
+                                        match: parts?.payload ?? "", targetName: nil, targetID: nil, replaced: [rule], rule: nil))
+                continue
+            case let .removeProvider(key):
+                guard base.providers.contains(where: { $0.key == key }) else { throw EditorError("配置中没有名为 \(key) 的规则集。") }
+                guard !base.rules.compactMap(RuleParts.parse).contains(where: { ConfigHealthCheck.ruleSetReferences($0).contains(key) }) else {
+                    throw EditorError("仍有规则使用规则集 \(key)，不能删除。")
+                }
+                guard touched.insert("provider:\(key)").inserted else { throw EditorError("计划重复删除了规则集 \(key)。") }
+                providerRemovals[index] = key
+                items.append(ChangeItem(id: index, kind: .removeProvider, subject: key, matchType: "RULE-SET", match: key,
+                                        targetName: nil, targetID: nil, replaced: [], rule: nil))
+                continue
             case let .route(type, value, target): (matchType, match, targetID) = (type, value, target)
             case let .removeRule(type, value): (matchType, match, targetID) = (type, value, nil)
             case let .ruleSet(_, target): (matchType, match, targetID) = ("RULE-SET", specs[index]!.key, target)
@@ -186,17 +209,24 @@ public enum PlanApplier {
             try YAMLSplice.addGroups(in: &lines, document: intermediate, additions: groupAdditions)
             intermediate = try ConfigDocument.parse(lines.text)
         }
+        let removedProviders = providerRemovals.filter { isAccepted($0.key) }.map(\.value)
+        if !removedProviders.isEmpty {
+            lines = SourceLines(intermediate.text)
+            try YAMLSplice.removeProviders(in: &lines, document: intermediate, keys: Set(removedProviders))
+            intermediate = try ConfigDocument.parse(lines.text)
+        }
         lines = SourceLines(intermediate.text)
 
         // 4. Rules: accepted additions go to the top in plan order, then every untouched original.
-        let removedPrefixes = active.map { "\($0.matchType),\($0.match),".lowercased() }
+        let removedPrefixes = active.filter { ruleRemovals[$0.id] == nil && $0.kind != .removeProvider }.map { "\($0.matchType),\($0.match),".lowercased() }
+        let removedIndices = Set(active.compactMap { ruleRemovals[$0.id] })
         var final: [(rule: String, original: Int?, inheritComments: Int?)] = []
         for item in active {
             guard let rule = item.rule else { continue }
             let firstReplaced = intermediate.rules.firstIndex { $0 == item.replaced.first }
             final.append((rule, nil, firstReplaced))
         }
-        for (index, rule) in intermediate.rules.enumerated() where !removedPrefixes.contains(where: { rule.lowercased().hasPrefix($0) }) {
+        for (index, rule) in intermediate.rules.enumerated() where !removedIndices.contains(index) && !removedPrefixes.contains(where: { rule.lowercased().hasPrefix($0) }) {
             final.append((rule, index, nil))
         }
         YAMLSplice.replaceRules(in: &lines, document: intermediate, final: final)
@@ -204,12 +234,12 @@ public enum PlanApplier {
 
         // 5. Prove the edit stayed inside its boundary.
         try verify(original: base, candidate: candidate, expectedRules: final.map(\.rule), addedProviders: additions.map(\.key),
-                   addedGroups: groupAdditions)
+                   addedGroups: groupAdditions, removedProviders: removedProviders)
         return ApplyResult(candidate: candidate, items: items, changed: candidate != base.text)
     }
 
     static func verify(original: ConfigDocument, candidate: String, expectedRules: [String], addedProviders: [String],
-                       addedGroups: [(name: String, type: String, members: [String])] = []) throws {
+                       addedGroups: [(name: String, type: String, members: [String])] = [], removedProviders: [String] = []) throws {
         let reread: ConfigDocument
         do { reread = try ConfigDocument.parse(candidate) } catch {
             throw EditorError("生成的配置无法重新解析，已拒绝：\((error as? EditorError)?.message ?? "")")
@@ -227,6 +257,10 @@ public enum PlanApplier {
         let oldProviders = before["rule-providers"]?.mapping
         let newProviders = after["rule-providers"]?.mapping
         for (key, value) in oldProviders ?? [:] {
+            if let name = key.string, removedProviders.contains(name) {
+                guard newProviders?[key] == nil else { throw EditorError("要删除的规则集仍在配置中，已拒绝生成。") }
+                continue
+            }
             guard newProviders?[key] == value else { throw EditorError("修改会改变已有的规则集，已拒绝生成。") }
         }
         let added = (newProviders.map { Array($0.keys).compactMap(\.string) } ?? []).filter { key in !(oldProviders?.keys.contains { $0.string == key } ?? false) }

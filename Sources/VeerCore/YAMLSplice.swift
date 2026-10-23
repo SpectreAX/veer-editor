@@ -164,6 +164,38 @@ enum YAMLSplice {
         }
     }
 
+    /// Removes whole entries from a block-style `rule-providers`; every other line stays as it is.
+    /// Removing the last entry leaves `rule-providers: {}`.
+    static func removeProviders(in lines: inout SourceLines, document: ConfigDocument, keys: Set<String>) throws {
+        guard !keys.isEmpty else { return }
+        let unsafe = EditorError("rule-providers 的格式无法安全删除规则集，请改为常规的多行格式后重试。")
+        guard let region = region(for: "rule-providers", in: document, lines: lines), inlineValue(lines.lines[region.keyLine]).isEmpty else { throw unsafe }
+        let body = Array((region.keyLine + 1)..<region.end)
+        guard let first = body.first(where: { !SourceLines.isTrivia(lines.lines[$0]) }) else { throw unsafe }
+        let indent = SourceLines.indentation(lines.lines[first])
+        // Entry starts: lines at the children's indentation; each runs to the next start.
+        let starts = body.filter { !SourceLines.isTrivia(lines.lines[$0]) && SourceLines.indentation(lines.lines[$0]) == indent }
+        var remove: [Range<Int>] = [], found = Set<String>()
+        for (n, start) in starts.enumerated() {
+            guard let key = (try? Yams.compose(yaml: String(lines.lines[start].dropFirst(indent))))??.mapping?.keys.first?.string else { throw unsafe }
+            guard keys.contains(key) else { continue }
+            var end = n + 1 < starts.count ? starts[n + 1] : region.end
+            // Comments above the next entry belong to it.
+            while end > start + 1 && SourceLines.isTrivia(lines.lines[end - 1]) { end -= 1 }
+            // So do the comment lines right above it.
+            var top = start
+            while top - 1 > region.keyLine && lines.lines[top - 1].trimmingCharacters(in: .whitespaces).hasPrefix("#") { top -= 1 }
+            remove.append(top..<end)
+            found.insert(key)
+        }
+        guard found == keys else { throw unsafe }
+        if found.count == starts.count {
+            lines.lines.replaceSubrange(region.keyLine..<region.end, with: ["rule-providers: {}"])
+            return
+        }
+        for range in remove.reversed() { lines.lines.removeSubrange(range) }
+    }
+
     /// A new top-level section goes before `rules` (or at the end when there are none).
     static func insertSection(_ section: [String], in lines: inout SourceLines, document: ConfigDocument) {
         if let rules = document.topLevelKeys.first(where: { $0.key == "rules" }) {

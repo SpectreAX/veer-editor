@@ -12,6 +12,11 @@ public struct EditPlan: Codable, Sendable, Hashable {
         /// A new proxy group appended to `proxy-groups`. Other operations in the same plan can
         /// target it by `NewGroup.id` (e.g. "new-1").
         case group(NewGroup)
+        /// Removes the rule at `index` of the draft, which must read `rule`: one copy of a duplicate
+        /// or a rule that can never match. Built by the health check, never accepted from the model.
+        case removeRuleAt(index: Int, rule: String)
+        /// Removes a rule provider nothing uses. Built by the health check, never accepted from the model.
+        case removeProvider(key: String)
     }
 
     /// One group to create. Members come from `regions` (nodes Veer has tagged with those
@@ -219,6 +224,10 @@ extension EditPlan {
                 var object: [String: Any] = ["kind": "rule_set", "url": url, "targetId": targetId]
                 if let behavior { object["behavior"] = behavior }
                 return object
+            case let .removeRuleAt(index, rule):
+                return ["kind": "remove_rule_at", "index": index, "rule": rule]
+            case let .removeProvider(key):
+                return ["kind": "remove_provider", "key": key]
             }
         }]
     }

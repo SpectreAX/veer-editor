@@ -217,6 +217,8 @@ struct AIEvalTests {
                 }
             case .group(let group):
                 return "新策略组 \(group.id) \(group.name) 地区=\(group.regions.map(\.rawValue)) 排除=\(group.excludeRegions.map(\.rawValue)) 成员=\(group.members.map(exit))"
+            default:
+                return "\(operation)"
             }
         }
     }

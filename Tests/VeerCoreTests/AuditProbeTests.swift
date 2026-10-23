@@ -23,6 +23,8 @@ struct AuditProbeTests {
                     case let .url(url, _): return "ruleset \(url)→\(target)"
                     }
                 case let .group(group): return "group \(group.name) regions=\(group.regions.map(\.rawValue)) excl=\(group.excludeRegions.map(\.rawValue)) members=\(group.members)"
+                case let .removeRuleAt(index, rule): return "remove #\(index) \(rule)"
+                case let .removeProvider(key): return "remove provider \(key)"
                 }
             }.joined(separator: "; ")
         }

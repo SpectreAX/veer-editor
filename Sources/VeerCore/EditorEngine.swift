@@ -234,7 +234,7 @@ public struct EditorEngine: Sendable {
             let id: String?
             switch op {
             case let .route(_, _, target), let .ruleSet(_, target): id = target
-            case .removeRule: id = nil
+            case .removeRule, .removeRuleAt, .removeProvider: id = nil
             case .group(let group):
                 exitNames.append("新建 \(group.name)")
                 id = nil

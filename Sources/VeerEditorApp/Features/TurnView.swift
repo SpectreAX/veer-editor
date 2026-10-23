@@ -363,6 +363,8 @@ struct ChangeRow: View {
                 Tag(text: ProfileAnalysis.groupTypeTitle(item.group?.type ?? "select"))
             } else if item.kind == .removeRule {
                 Text("删除规则").foregroundStyle(.secondary)
+            } else if item.kind == .removeProvider {
+                Text("删除规则集").foregroundStyle(.secondary)
             } else {
                 Image(systemName: "arrow.right").imageScale(.small).foregroundStyle(.secondary)
                 Text(targetText).lineLimit(1).truncationMode(.middle)
@@ -388,6 +390,7 @@ struct ChangeRow: View {
         if let provider = item.provider {
             return "规则集 \(provider.sourceLabel) · \(provider.verification.label)"
         }
+        if item.kind == .removeProvider { return "从 rule-providers 删除，没有规则使用它" }
         return item.rule ?? "\(item.matchType),\(item.match)"
     }
 
@@ -395,6 +398,7 @@ struct ChangeRow: View {
         switch item.kind {
         case .group: "新建策略组 \(item.subject)，包含 \(item.group?.members.count ?? 0) 个出口"
         case .removeRule: "删除 \(item.subject) 的规则"
+        case .removeProvider: "删除规则集 \(item.subject)"
         default: "\(item.subject) 到 \(targetText)"
         }
     }

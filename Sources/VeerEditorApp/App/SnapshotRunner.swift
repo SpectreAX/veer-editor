@@ -433,6 +433,55 @@ enum SnapshotRunner {
         await shot("34-auto-written")
         store.executionMode = .manual
 
+        // 配置体检: problems found in the draft, the fixes as one reviewable proposal, and what stays.
+        let checkup = """
+        proxies:
+          - {name: "🇭🇰 香港 01", type: ss, server: hk.example.invalid, port: 1, cipher: aes-128-gcm, password: p}
+          - {name: "🇯🇵 东京 Premium-IEPL-Streaming-Unlock-02", type: ss, server: jp.example.invalid, port: 1, cipher: aes-128-gcm, password: p}
+        proxy-groups:
+          - {name: 🚀 节点选择, type: select, proxies: ["🇭🇰 香港 01", "🇯🇵 东京 Premium-IEPL-Streaming-Unlock-02"]}
+        rule-providers:
+          netflix: {type: http, behavior: domain, format: mrs, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/netflix.mrs", path: ./ruleset/netflix.mrs, interval: 86400}
+          legacy-advertising-and-tracking-blocklist: {type: http, behavior: domain, format: mrs, url: "https://example.invalid/ads.mrs", path: ./ruleset/ads.mrs, interval: 86400}
+        rules:
+          - RULE-SET,netflix,🚀 节点选择
+          - DOMAIN-SUFFIX,google.com,🚀 节点选择
+          - DOMAIN,mail.google.com,DIRECT
+          - DOMAIN-SUFFIX,cn,DIRECT
+          - DOMAIN-SUFFIX,baidu.cn,🚀 节点选择
+          - DOMAIN-SUFFIX,github.com,🚀 节点选择
+          - DOMAIN-SUFFIX,github.com,🚀 节点选择
+          - MATCH,🚀 节点选择
+          - DOMAIN-SUFFIX,openai.com,🚀 节点选择
+        """
+        store.importText(checkup, title: "体检示例.yaml")
+        store.confirmExits()
+        store.inspectorPresented = true
+        store.inspectorTab = .health
+        store.toast = nil
+        await shot("35-health")
+        await shot("35e-health-minimum", size: Metrics.minWindow)
+        store.fixHealth(store.healthFindings.filter { !$0.fix.isEmpty })
+        await waitIdle(store)
+        store.inspectorTab = .health
+        await shot("35b-health-review")
+        store.write()
+        await settle(0.4)
+        await shot("35c-health-after")
+        store.importText("""
+        proxies:
+          - {name: A, type: ss, server: a.example.invalid, port: 1, cipher: aes-128-gcm, password: p}
+        proxy-groups:
+          - {name: 🎬 Netflix 解锁专用组（待补成员）, type: select}
+        rules:
+          - DOMAIN-SUFFIX,netflix.com,奈飞
+          - DOMAIN-SUFFIX,example.com,A
+        """, title: "体检错误示例.yaml")
+        store.confirmExits()
+        store.inspectorTab = .health
+        store.toast = nil
+        await shot("35d-health-errors")
+
         store.newImport()
         await shot("20-start-with-sessions")
         store.select(store.sessions[0].id)
