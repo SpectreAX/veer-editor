@@ -13,6 +13,8 @@ import Yams
 public struct AnonymizedConfig: Sendable {
     public let yaml: String
     public let context: AnonymousContext
+    /// The draft's rules as the model sees them, in order (at most `ruleLimit`).
+    public let rules: [String]
     /// What each part of the original became, for the side-by-side view. Kept on this Mac only.
     public let comparison: PayloadComparison
     /// Anonymous rule-set label ("规则集1") → real rule-set name, for plans that delete a rule set.
@@ -163,6 +165,7 @@ public struct AnonymizedConfig: Sendable {
         for rule in document.rules.prefix(ruleLimit) {
             rules.append(anonymize(rule: rule, label: label, providerNames: providerNames, placeholder: placeholder))
         }
+        let sentRules = rules
         if document.rules.count > ruleLimit { rules.append("# 另有 \(document.rules.count - ruleLimit) 条规则未列出") }
         section("规则", Array(zip(document.rules.prefix(ruleLimit), rules)),
                 note: document.rules.count > ruleLimit ? "只发送前 \(ruleLimit) 条，另有 \(document.rules.count - ruleLimit) 条未发送" : nil)
@@ -178,7 +181,7 @@ public struct AnonymizedConfig: Sendable {
         """
         let body = (try? Yams.serialize(node: .mapping(.init(root.map { (scalar($0.0), $0.1) }, Tag(.map), .block)),
                                         indent: 2, width: -1, allowUnicode: true)) ?? ""
-        return AnonymizedConfig(yaml: header + ConfigImporter.readableUnicode(body), context: context,
+        return AnonymizedConfig(yaml: header + ConfigImporter.readableUnicode(body), context: context, rules: sentRules,
                                 comparison: PayloadComparison(sections: sections),
                                 ruleSetNames: Dictionary(providerNames.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a }))
     }

@@ -131,7 +131,8 @@ final class EditorStore {
         self.store = store
         self.geo = geo
         self.keyStore = keyStore
-        self.engine = engine ?? EditorEngine(searcher: WebSearchService(geo: geo), lookup: InstructionLookup(geo: geo))
+        self.engine = engine ?? EditorEngine(searcher: WebSearchService(geo: geo), lookup: InstructionLookup(geo: geo),
+                                             checker: DomainChecker(geo: geo))
         self.defaults = defaults
         var settings = AISettings()
         if let data = defaults.data(forKey: "aiSettings"), let saved = try? JSONDecoder().decode(AISettings.self, from: data) {
@@ -545,6 +546,15 @@ final class EditorStore {
             case .searched(let records):
                 turn.searches = (turn.searches ?? []) + records
                 turn.steps[0].detail = "已联网搜索 \(turn.searches?.count ?? 0) 条，正在根据结果生成计划"
+            case .checking(let domains):
+                turn.steps[0].detail = "正在本机检查 \(domains.count) 个域名命中哪条规则"
+            case let .checked(records, sent):
+                turn.checks = (turn.checks ?? []) + records
+                if var payload = turn.sentPayload {
+                    payload.checks = (payload.checks ?? []) + [sent]
+                    turn.sentPayload = payload
+                }
+                turn.steps[0].detail = "已检查 \(turn.checks?.count ?? 0) 个域名，正在根据结果生成计划"
             case .lookedUp(let hints):
                 turn.lookups = hints
                 if turn.sentPayload != nil { turn.sentPayload?.lookups = hints.message }

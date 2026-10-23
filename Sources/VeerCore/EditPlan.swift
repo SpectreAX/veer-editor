@@ -77,6 +77,8 @@ public enum AssistantReply: Sendable, Equatable {
     case outOfScope(String)
     /// The model wants Veer to search before it answers (public names only).
     case search([String])
+    /// The model wants Veer to test domains against the draft's rules before it answers.
+    case check([String])
 }
 
 extension EditPlan {
@@ -110,6 +112,13 @@ extension EditPlan {
                 throw EditorError("AI 的搜索请求格式无效：search 只能包含 queries（字符串数组），且不能和计划或问题同时出现。")
             }
             return (.search(Array(queries.prefix(SearchQueries.maxQueries * 2))), understanding)
+        }
+        if let check = root["check"] {
+            guard Set(root.keys).isSubset(of: ["check", "understanding"]), let request = check as? [String: Any],
+                  Set(request.keys).isSubset(of: ["domains"]), let domains = request["domains"] as? [String], !domains.isEmpty else {
+                throw EditorError("AI 的检查请求格式无效：check 只能包含 domains（字符串数组），且不能和计划或问题同时出现。")
+            }
+            return (.check(Array(domains.prefix(DomainChecker.maxDomains * 2))), understanding)
         }
         if let clarification = root["clarification"] {
             guard Set(root.keys).isSubset(of: ["clarification", "understanding"]), let question = clarification as? String,

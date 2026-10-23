@@ -11,6 +11,7 @@ struct AuditProbeTests {
         case let .clarification(question, options): return "ASK \(question.prefix(40)) [\(options.map(\.label).joined(separator: "|"))]"
         case let .outOfScope(message): return "OUT \(message.prefix(30))"
         case let .search(queries): return "SEARCH \(queries)"
+        case let .check(domains): return "CHECK \(domains)"
         case let .plan(plan):
             return "PLAN " + plan.operations.map { op -> String in
                 switch op {

@@ -228,6 +228,12 @@ enum SnapshotRunner {
                 .init(title: "中国国际航空 官方网站", url: "http://www.airchina.com.cn", snippet: "flag carrier of the People's Republic of China（Wikidata Q51747）"),
             ], source: "Wikidata 官方网站（无需 Key）")]
             live.reasoning = "用户想让 Google 的流量走台湾，Netflix 走新加坡。\n配置里有“台湾自动”和“新加坡节点”两个地区策略组，可以直接使用。\nGoogle 对应 MetaCubeX geosite 的 google 规则集，Netflix 对应 netflix 规则集。\n两条规则都应插在 MATCH 之前……"
+            live.checks = [
+                CheckRecord(domain: "www.bilibili.com", ruleIndex: 4, rule: "GEOSITE,cn,DIRECT", target: "DIRECT", certain: true, note: nil,
+                            sets: ["bilibili", "cn"], address: nil),
+                CheckRecord(domain: "upos-hz-mirrorakam.akamaized.net", ruleIndex: 7, rule: "MATCH,自动选择", target: "自动选择", certain: false,
+                            note: "第 6 条等 1 条规则需要运行时数据才能判断", sets: ["bilibili", "bilibili-cdn", "akamai", "geolocation-!cn"], address: nil),
+            ]
             session.turns.append(live)
             store.current = session
             await shot("29-live-reasoning")

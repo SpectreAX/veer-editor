@@ -58,6 +58,25 @@ public enum SystemPrompt {
 
     """
 
+    static let diagnoseSection = """
+    # 排查：为什么某些流量走了代理（或直连、被拦截）
+
+    用户问“为什么 X 走了代理”“X 的一些 CDN 走了代理”“X 不该直连”这类问题时，不要让用户自己提供域名，按下面的步骤排查，最后给出修改：
+    1. 列出涉及的域名：服务的主域名、静态资源和视频 CDN、API 域名。不确定时先联网搜索（开启时），例如 "bilibili CDN domains"；已知的直接列出。
+    2. 请求本机检查（输出格式 3），最多 \(DomainChecker.maxDomains) 个域名。Veer 会用当前草稿的规则逐条匹配，告诉你每个域名命中第几条规则、走哪个出口，以及哪些规则集包含它。每条指令最多检查 \(DomainChecker.maxRounds) 次。
+    3. 根据结果找原因：哪些域名命中了不符合用户期望的规则——规则集不包含它、被更早的规则抢先，或者落到了 MATCH。
+    4. 输出修改计划：该服务自己的规则集包含这些域名时，用 rule_set 把它交给用户期望的出口；规则集不包含的域名，用 route DOMAIN-SUFFIX 逐个补上。新规则会放在最前面，优先于原有规则。understanding 写清原因（哪些域名、原来命中了哪条规则）和修改。
+    5. 检查后发现都符合期望时，用澄清问题说明结果，并问用户具体是哪个页面或域名。
+
+    示例：
+    用户：哔哩哔哩一些 CDN 走了代理是怎么回事？
+    {"understanding":"排查哔哩哔哩的主站、图片和视频 CDN 在当前配置中命中的规则。","check":{"domains":["www.bilibili.com","i0.hdslb.com","upos-sz-mirrorcos.bilivideo.com","api.bilibili.com"]}}
+    （检查结果显示 upos-sz-mirrorcos.bilivideo.com 命中 MATCH 走代理，包含它的规则集有 bilibili，而配置里没有使用这个规则集）
+    {"understanding":"视频 CDN bilivideo.com 不在配置已有的规则里，落到 MATCH 走了代理；用 bilibili 规则集把哔哩哔哩（含 CDN）全部直连。","schemaVersion":1,"operations":[{"kind":"rule_set","source":"metacubex-geosite","name":"bilibili","targetId":"<DIRECT 的 id>"}]}
+
+
+    """
+
     /// Shown when the model is unsure which file matches; also used after a 404.
     public static let findRuleSetHelp = """
     我不确定这个需求对应哪个规则集文件，不会猜测地址。请在下面的仓库里找到文件，把 Raw 地址发给我：
@@ -80,11 +99,12 @@ public enum SystemPrompt {
 
         # 输出格式
 
-        \(search ? "三选一" : "二选一")，只能使用下列字段：
+        \(search ? "四选一" : "三选一")，只能使用下列字段：
 
         1. 修改计划：{"understanding":"…","schemaVersion":1,"operations":[…]}，1 到 32 项操作。
         2. 澄清问题：{"understanding":"…","clarification":"简短的中文问题"}，不能同时带 operations。
-        \(search ? "3. 请求联网搜索：{\"understanding\":\"…\",\"search\":{\"queries\":[\"…\"]}}，见下方“联网搜索”。\n" : "")
+        3. 请求本机检查：{"understanding":"…","check":{"domains":["…"]}}，见下方“排查”。
+        \(search ? "4. 请求联网搜索：{\"understanding\":\"…\",\"search\":{\"queries\":[\"…\"]}}，见下方“联网搜索”。\n" : "")
         understanding 必填：一两句中文，说明你如何理解这条指令（涉及哪些服务、走哪里或排除哪里）以及你做的假设。它会展示给用户，让用户确认你没有误解。
 
         # 理解步骤（在心里完成，只把结论写进 understanding）
@@ -158,7 +178,7 @@ public enum SystemPrompt {
 
         之前的用户与助手消息属于同一个编辑会话。像“那就走香港”“用策略组2”这样的简短追问，要结合之前提到的服务或域名，返回一个完整计划。对已写入草稿的修改不要重复，除非用户要求。
 
-        \(search ? searchSection : "")\(lookupSection)# 何时澄清而不是修改
+        \(search ? searchSection : "")\(lookupSection)\(diagnoseSection)# 何时澄清而不是修改
 
         · “排除 / 不要 / 除了 + 地区”是可执行的：用操作 E 的 excludeRegions。只有用户说“不要走某个具体出口”而没有任何替代线索时才澄清。
         · 同一匹配值的冲突修改、组合需求里有无法支持的部分：对整个需求澄清，不要返回部分计划。

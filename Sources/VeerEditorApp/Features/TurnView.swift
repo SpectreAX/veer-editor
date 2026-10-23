@@ -63,6 +63,9 @@ struct AssistantTurn: View {
             if let searches = turn.searches, !searches.isEmpty {
                 SearchRecordsView(records: searches, running: turn.outcome == .running)
             }
+            if let checks = turn.checks, !checks.isEmpty {
+                CheckRecordsView(records: checks, running: turn.outcome == .running)
+            }
             if let problem = turn.repairedFrom {
                 Label("第一次回答无法使用（\(problem)），已自动让 AI 修正。", systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -665,6 +668,45 @@ struct ReasoningView: View {
             .onAppear { if followingEnd { proxy.scrollTo("end", anchor: .bottom) } }
         }
         .accessibilityLabel("模型思考")
+    }
+}
+
+/// The domains the model had Veer test: the rule each one hits under the current draft, and
+/// the rule sets that contain it.
+struct CheckRecordsView: View {
+    let records: [CheckRecord]
+    let running: Bool
+    @State private var expanded: Bool?
+
+    var body: some View {
+        DisclosureGroup(isExpanded: Binding(get: { expanded ?? true }, set: { expanded = $0 })) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                ForEach(records, id: \.domain) { record in
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
+                        Text(record.domain).font(Typography.codeSmall).textSelection(.enabled)
+                        if let index = record.ruleIndex, let rule = record.rule {
+                            Text(verbatim: "\(record.certain ? "命中" : "可能命中")第 \(index + 1) 条 \(rule)")
+                                .font(.caption).foregroundStyle(record.certain ? .secondary : Color.statusWarning).textSelection(.enabled)
+                        } else {
+                            Text("本机无法确定命中哪一条").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let note = record.note { Text(note).font(.caption).foregroundStyle(.tertiary) }
+                        if !record.sets.isEmpty {
+                            FlowLayout(spacing: Spacing.xs) {
+                                ForEach(record.sets, id: \.self) { Tag(text: GeoSiteHit.isBroad($0) ? "\($0)（宽泛）" : $0) }
+                            }
+                            .help("包含这个域名的 MetaCubeX 规则集")
+                        }
+                    }
+                }
+                Text("Veer 用当前草稿的规则在本机逐条匹配，结果已发给 AI。").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.subtleFill, in: RoundedRectangle(cornerRadius: Radius.small))
+        } label: {
+            Label("本机检查 \(records.count) 个域名", systemImage: "checklist").font(.callout)
+        }
     }
 }
 

@@ -44,7 +44,7 @@ struct SystemPromptTests {
             switch try EditPlan.decodeReply(json) {
             case .clarification(let text, _): #expect(text == SystemPrompt.askForExit)
             case .plan(let plan): #expect(try PlanApplier.apply(plan, to: doc).changed)
-            case .outOfScope, .search: Issue.record("unexpected reply")
+            case .outOfScope, .search, .check: Issue.record("unexpected reply")
             }
         }
     }

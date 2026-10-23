@@ -153,6 +153,8 @@ public struct Turn: Codable, Identifiable, Sendable, Equatable {
     public var searches: [SearchRecord]?
     /// Local lookups of the instruction's domains and IPs.
     public var lookups: LookupHints?
+    /// Domains the model had Veer test against the draft's rules.
+    public var checks: [CheckRecord]?
 
     public init(prompt: String, mode: Mode, steps: [Step], outcome: Outcome = .running, now: Date = .now) {
         id = UUID()

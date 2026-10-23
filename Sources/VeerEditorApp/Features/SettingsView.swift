@@ -303,6 +303,7 @@ struct PrivacySettingsPane: View {
             Section("查询工具") {
                 Label("规则集与 IP 查询在本机进行：地理数据（MetaCubeX geosite、geoip 与 GeoLite2-ASN）只在你点下载时从 GitHub 获取", systemImage: "lock.shield")
                 Label("DNS 查询只发给你选择的服务器；IP 页输入域名时通过阿里 DoH 解析", systemImage: "network")
+                Label("AI 排查问题时请 Veer 检查的域名在本机匹配规则；需要按 IP 判断时，这些公开域名会通过阿里 DoH 解析", systemImage: "checklist")
             }
             Section("从不发送") {
                 Label("真实的节点、策略组和代理集名称", systemImage: "xmark")

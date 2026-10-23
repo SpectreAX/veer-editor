@@ -27,6 +27,9 @@ public struct EditorEngine: Sendable {
         case searched([SearchRecord])
         /// What the local geodata says about the instruction's domains and IPs.
         case lookedUp(LookupHints)
+        case checking([String])
+        /// The results and the message that carried them to the model.
+        case checked([CheckRecord], sent: String)
     }
 
     /// How many times an unusable AI answer is sent back with its error before giving up.
@@ -65,10 +68,13 @@ public struct EditorEngine: Sendable {
     let searcher: RuleSearching
     /// Local geodata lookups for the instruction's domains and IPs; nil skips them.
     let lookup: InstructionLookup?
+    /// Tests domains against the draft when the model asks; nil answers that checking is unavailable.
+    let checker: DomainChecker?
 
     public init(ai: AIClient = AIClient(), validator: ConfigValidating = MihomoValidator(), verifier: RuleSetVerifying = NetworkRuleSetVerifier(),
-                searcher: RuleSearching = WebSearchService(), lookup: InstructionLookup? = nil) {
+                searcher: RuleSearching = WebSearchService(), lookup: InstructionLookup? = nil, checker: DomainChecker? = nil) {
         self.lookup = lookup
+        self.checker = checker
         self.ai = ai
         self.validator = validator
         self.verifier = verifier
@@ -110,6 +116,7 @@ public struct EditorEngine: Sendable {
         var followUps: [(role: String, content: String)] = []
         var attempt = 0
         var searchRounds = 0
+        var checkRounds = 0
         while true {
             // Thinking models stream, so their reasoning shows while they work.
             let streaming = request.settings.thinks
@@ -138,6 +145,23 @@ public struct EditorEngine: Sendable {
                                   ("user", SearchQueries.message(for: records, refused: checked.refused, lastRound: searchRounds >= SearchQueries.maxRounds))]
                     continue
                 }
+                if case let .check(raw) = decoded.reply {
+                    // Test the domains against the draft and hand the results back (at most `maxRounds` times).
+                    guard let checker else { throw EditorError("本机检查不可用。请直接输出修改计划或澄清问题。") }
+                    guard checkRounds < DomainChecker.maxRounds else { throw EditorError("本轮已经检查过 \(DomainChecker.maxRounds) 次，不能再检查。请根据已有结果输出修改计划或澄清问题。") }
+                    let domains = DomainChecker.sanitize(raw)
+                    guard !domains.isEmpty else { throw EditorError("check.domains 里没有有效的域名（例如 i0.hdslb.com），请只列公开域名。") }
+                    checkRounds += 1
+                    await progress(.checking(domains))
+                    let records = await checker.check(domains, draft: request.draft)
+                    try Task.checkCancellation()
+                    let geodata = await checker.geo?.status().has(.geosite) ?? false
+                    let message = DomainChecker.message(for: records, anonymizedRules: anonymized.rules, geodata: geodata,
+                                                        lastRound: checkRounds >= DomainChecker.maxRounds)
+                    await progress(.checked(records, sent: message))
+                    followUps += [("assistant", String(answer.content.prefix(8_000))), ("user", message)]
+                    continue
+                }
                 if attempt == 0 { await progress(.finished(0, detail: "已由 \(model) 解析")) }
                 return try await handle(anonymized.restoringRuleSetNames(in: decoded.reply), request: request, progress: progress)
             } catch let error as EditorError where attempt < Self.repairAttempts {
@@ -163,6 +187,8 @@ public struct EditorEngine: Sendable {
         case .search:
             // Searches are answered inside the AI loop; one reaching here was not allowed.
             throw EditorError("AI 请求了联网搜索，但本轮不能再搜索。请换一种说法或开启联网搜索。")
+        case .check:
+            throw EditorError("AI 请求了本机检查，但本轮不能再检查。请换一种说法再试。")
         }
     }
 

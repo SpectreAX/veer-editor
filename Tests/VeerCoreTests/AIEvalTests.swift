@@ -65,6 +65,12 @@ struct AIEvalTests {
 
     /// From the 2026-10-19 test report's 45 phrases (AuditProbeTests.parserMatrix) and later bugs.
     static let cases: [Case] = [
+        // Diagnosis (2026-10-23): check the domains, then fix or explain. In SampleConfig GEOSITE,cn
+        // already sends Bilibili direct, so explaining is right too.
+        .init(prompt: "哔哩哔哩一些 CDN 走了代理是怎么回事？",
+              expect: .either(.plan([.service(sets: ["bilibili", "bilibili-cdn"], domains: ["bilivideo.com", "hdslb.com", "akamaized.net"], to: .direct)]), .clarify)),
+        .init(prompt: "为什么 GitHub 的下载走了自动选择？我想让 GitHub 全部走美国",
+              expect: .plan([.service(sets: ["github"], domains: ["github.com", "githubusercontent.com"], to: .region(.us))])),
         .init(prompt: "Netflix 走日本", expect: .plan([.service(sets: ["netflix"], domains: ["netflix.com"], to: .region(.jp))])),
         .init(prompt: "让 youtube 走香港", expect: .plan([.service(sets: ["youtube"], domains: ["youtube.com"], to: .region(.hk))])),
         .init(prompt: "github.com 直连", expect: .plan([.service(sets: ["github"], domains: ["github.com"], to: .direct)])),
@@ -288,7 +294,8 @@ struct AIEvalTests {
         func run(_ item: Case) async -> Outcome {
             let transport = CountingTransport()
             let engine = EditorEngine(ai: AIClient(transport: transport),
-                                      searcher: WebSearchService(geo: geo), lookup: geo.map { InstructionLookup(geo: $0) })
+                                      searcher: WebSearchService(geo: geo), lookup: geo.map { InstructionLookup(geo: $0) },
+                                      checker: DomainChecker(geo: geo))
             var request = EditorEngine.Request(prompt: item.prompt, draft: document, regions: context.regions, useAI: true,
                                                settings: settings, apiKey: key)
             request.search = search

@@ -51,7 +51,8 @@ struct SearchProtocolTests {
     @Test func promptMentionsSearchOnlyWhenAllowed() {
         #expect(SystemPrompt.build(config: "a: 1", search: true).contains("# 联网搜索"))
         #expect(!SystemPrompt.build(config: "a: 1").contains("# 联网搜索"))
-        #expect(SystemPrompt.build(config: "a: 1", search: true).contains("三选一"))
+        #expect(SystemPrompt.build(config: "a: 1", search: true).contains("四选一"))
+        #expect(SystemPrompt.build(config: "a: 1").contains("三选一"))
     }
 }
 
