@@ -38,15 +38,18 @@ struct SystemPromptTests {
         let direct = doc.target(named: "DIRECT")!.id, reject = doc.target(named: "REJECT")!.id
         let section = prompt.components(separatedBy: "# 示例")[1].components(separatedBy: "# Targets")[0]
         let examples = section.components(separatedBy: "\n").filter { $0.hasPrefix("{\"") }
-        #expect(examples.count == 6)
+        #expect(examples.count == 8)
+        var questions: [String] = []
         for line in examples {
             let json = line.replacingOccurrences(of: "<DIRECT 的 id>", with: direct).replacingOccurrences(of: "<REJECT 的 id>", with: reject)
             switch try EditPlan.decodeReply(json) {
-            case .clarification(let text, _): #expect(text == SystemPrompt.askForExit)
+            case .clarification(let text, _): questions.append(text)
             case .plan(let plan): #expect(try PlanApplier.apply(plan, to: doc).changed)
             case .outOfScope, .search, .check: Issue.record("unexpected reply")
             }
         }
+        #expect(questions.contains(SystemPrompt.askForExit))
+        #expect(questions.count == 3)
     }
 
     @Test func everyListedNameIsAValidCatalogEntry() throws {

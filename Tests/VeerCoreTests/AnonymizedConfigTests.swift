@@ -37,6 +37,26 @@ struct AnonymizedConfigTests {
         return AnonymizedConfig.make(document: doc, regions: regions, shareRuleLiterals: literals)
     }
 
+    /// A value the user typed is sent in the instruction anyway; masking it in the rules only hides
+    /// which rule they mean ("把 google 的规则删掉" against DOMAIN-KEYWORD,google).
+    @Test func valuesTypedInTheInstructionStayReadable() throws {
+        let doc = try ConfigDocument.parse(source)
+        let regions = Session(title: "", source: .pasted, text: source).regions(for: doc.targets)
+        let typed = AnonymizedConfig.make(document: doc, regions: regions, instruction: "去掉 intranet.corp.invalid 的规则")
+        #expect(typed.rules.contains("DOMAIN-SUFFIX,intranet.corp.invalid,DIRECT"))
+        #expect(typed.rules.contains("IP-CIDR,<IP1>,DIRECT,no-resolve"))
+        #expect(typed.yaml.contains("用户指令里写出的值保持原样"))
+        #expect(typed.comparison.sections.first { $0.title == "规则中的具体值" }?.rows.first?.sent == "intranet.corp.invalid")
+        // Only whole tokens: "corp" inside another word, or a value the user did not type, stays masked.
+        let other = AnonymizedConfig.make(document: doc, regions: regions, instruction: "mycorp.invalid 直连")
+        #expect(other.rules.contains("DOMAIN-SUFFIX,<域名1>,DIRECT"))
+        #expect(AnonymizedConfig.typedInInstruction("google", "把 google 的规则删掉"))
+        #expect(AnonymizedConfig.typedInInstruction("google", "google.com 直连"))
+        #expect(!AnonymizedConfig.typedInInstruction("google", "mygoogle 直连"))
+        #expect(!AnonymizedConfig.typedInInstruction("0.0.0/8", "10.0.0.0/8 直连"))
+        #expect(!AnonymizedConfig.typedInInstruction("jp", "所有 .jp 域名走日本"))
+    }
+
     @Test func comparisonPairsEachOriginalWithWhatWasSent() throws {
         let sections = try make().comparison.sections
         func rows(_ title: String) -> [String] {

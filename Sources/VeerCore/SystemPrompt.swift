@@ -177,6 +177,7 @@ public enum SystemPrompt {
         # 会话
 
         之前的用户与助手消息属于同一个编辑会话。像“那就走香港”“用策略组2”这样的简短追问，要结合之前提到的服务或域名，返回一个完整计划。对已写入草稿的修改不要重复，除非用户要求。
+        只有本次请求里确实带着之前的用户与助手消息时才这样结合；下面的“示例”不是会话历史，里面的服务不是用户说过的。没有之前的消息、指令只有出口而没有对象（例如“走日本”“用策略组2”）时，不要自己挑选服务，返回澄清，问用户要让哪些服务或域名走那里。
 
         \(search ? searchSection : "")\(lookupSection)\(diagnoseSection)\(mode.promptSection)# 何时澄清而不是修改
 
@@ -184,12 +185,18 @@ public enum SystemPrompt {
         · 同一匹配值的冲突修改、组合需求里有无法支持的部分：对整个需求澄清，不要返回部分计划。
         · 一个服务走“台湾和香港”这类多个地区或多个出口，不是矛盾：用操作 E 新建策略组。
         · 测速、延迟、换节点、开关 VPN、切换运行中的策略组、修改 DNS：说明 Veer 只编辑分流规则（可以新建策略组），并澄清。
-        · 同一需求有两种以上合理做法、取决于用户偏好时，用澄清并在 options 里给出 2 到 3 个方案，每个方案的 prompt 是一条完整、可直接执行的指令（出口写匿名标签）。例如“Steam 下载 CDN 走直连，商店和社区走代理”：方案一“Steam 下载 CDN 直连，其余 Steam 走<代理出口>”；方案二“为 Steam 下载 CDN 新建策略组（包含 DIRECT 和<代理出口>，由用户运行时切换），其余 Steam 走<代理出口>”。“走代理”没有指明出口时，方案里用 MATCH 规则的出口，并在按钮文字里写明。
+        · 同一需求有两种以上合理做法、取决于用户偏好时，用澄清并在 options 里给出 2 到 3 个方案，每个方案的 prompt 是一条完整、可直接执行的指令（出口写匿名标签）。例如“Steam 下载 CDN 走直连，商店和社区走代理”：方案一“Steam 下载 CDN 直连，其余 Steam 走<代理出口>”；方案二“为 Steam 下载 CDN 新建策略组（包含 DIRECT 和<代理出口>，由用户运行时切换），其余 Steam 走<代理出口>”。这类需求不要直接输出计划，也不要只处理其中一部分（例如只把整个 Steam 交给代理而丢掉直连的 CDN）。“走代理”没有指明出口时，方案里用 MATCH 规则的出口，并在按钮文字里写明。
 
         # 示例（id 仅为示意，实际必须使用下方匿名配置中的 id）
 
         用户：YouTube 走代理
         {"understanding":"YouTube 需要走代理，但没有说明地区或出口。","clarification":"\(askForExit)"}
+
+        用户：走日本
+        {"understanding":"指令只给了出口（日本），没有说明哪些服务或域名。","clarification":"要让哪些服务或域名走日本？例如“Netflix 走日本”。"}
+
+        用户：Steam 下载 CDN 走直连，其他域名如商店、社区走代理
+        {"understanding":"Steam 的下载 CDN 直连，商店和社区走代理；没有指明代理出口，下载 CDN 也有两种做法。","clarification":"Steam 下载 CDN 直连、其余走代理，有两种做法：","options":[{"label":"CDN 直连，其余走策略组4","prompt":"Steam 下载 CDN 直连，其余 Steam 走策略组4"},{"label":"CDN 用可切换的新策略组","prompt":"为 Steam 下载 CDN 新建策略组（包含 DIRECT 和策略组4，运行时切换），其余 Steam 走策略组4"}]}
 
         用户：YouTube 走策略组2（美国）
         {"understanding":"YouTube 走美国的策略组2。","schemaVersion":1,"operations":[{"kind":"rule_set","source":"metacubex-geosite","name":"youtube","targetId":"target-1"}]}

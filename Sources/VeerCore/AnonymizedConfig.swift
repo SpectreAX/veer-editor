@@ -9,7 +9,8 @@ import Yams
 /// node fields (server, port, password, uuid, cipher, transport, TLS/SNI, keys), protocol types,
 /// health-check URLs, provider URLs and paths, and every other top-level key (DNS, TUN,
 /// listeners, controller). Literal domains and IPs in rules become placeholders unless the user
-/// opts in; public category names (GEOSITE/GEOIP tags, catalog rule-set names) stay readable.
+/// opts in or typed that value in the instruction (it is sent there anyway); public category
+/// names (GEOSITE/GEOIP tags, catalog rule-set names) stay readable.
 public struct AnonymizedConfig: Sendable {
     public let yaml: String
     public let context: AnonymousContext
@@ -43,8 +44,13 @@ public struct AnonymizedConfig: Sendable {
             + SystemPrompt.blackmatrix7Names).map { $0.lowercased() }
     )
 
-    public static func make(document: ConfigDocument, regions: [String: Region], shareRuleLiterals: Bool = false) -> AnonymizedConfig {
+    /// `instruction`: the user's instruction. Rule values it contains stay readable, so "把 google 的
+    /// 规则删掉" can find `DOMAIN-KEYWORD,google`.
+    public static func make(document: ConfigDocument, regions: [String: Region], shareRuleLiterals: Bool = false,
+                            instruction: String = "") -> AnonymizedConfig {
         let context = AnonymousContext(targets: document.targets, regions: regions)
+        // Only what is actually sent: exit names in the instruction are already labels.
+        let typed = context.anonymize(instruction).lowercased()
         let analysis = ProfileAnalysis.analyze(document.text)
         let labelMap = Dictionary(context.labels.map { ($0.name, $0.label) }, uniquingKeysWith: { a, _ in a })
         func label(_ name: String) -> String {
@@ -153,8 +159,14 @@ public struct AnonymizedConfig: Sendable {
 
         var literals: [String: String] = [:]
         var literalRows: [(String, String)] = []
+        var revealed = false
         func placeholder(_ value: String, kind: String) -> String {
             if shareRuleLiterals { return value }
+            if typedInInstruction(value, typed) {
+                if !literalRows.contains(where: { $0.0.lowercased() == value.lowercased() }) { literalRows.append((value, value)) }
+                revealed = true
+                return value
+            }
             if let existing = literals[value.lowercased()] { return existing }
             let token = "<\(kind)\(literals.count + 1)>"
             literals[value.lowercased()] = token
@@ -169,7 +181,7 @@ public struct AnonymizedConfig: Sendable {
         if document.rules.count > ruleLimit { rules.append("# 另有 \(document.rules.count - ruleLimit) 条规则未列出") }
         section("规则", Array(zip(document.rules.prefix(ruleLimit), rules)),
                 note: document.rules.count > ruleLimit ? "只发送前 \(ruleLimit) 条，另有 \(document.rules.count - ruleLimit) 条未发送" : nil)
-        section("规则中的具体值", literalRows, note: "同一个值始终替换为同一个占位符")
+        section("规则中的具体值", literalRows, note: "同一个值始终替换为同一个占位符" + (revealed ? "；你在指令里写出的值保持原样" : ""))
         let sent: Set<String> = ["mode", "proxies", "proxy-groups", "rules", "rule-providers", "proxy-providers"]
         section("未发送的配置", document.topLevelKeys.map(\.key).filter { !sent.contains($0) }.map { ($0, "未发送") })
         if !rules.isEmpty { root.append(("rules", .sequence(.init(rules.map { scalar($0) }, Tag(.seq), .block)))) }
@@ -177,13 +189,30 @@ public struct AnonymizedConfig: Sendable {
         let header = """
         # Veer 匿名配置：名称已替换为标签，修改出口时使用 id。
         # 已移除：真实名称、节点地址/端口/密码/协议参数、订阅与规则集地址、DNS/TUN 等其他配置。
-        \(shareRuleLiterals ? "" : "# 规则中的具体域名和 IP 已替换为 <域名N> / <IPN> 占位符。\n")
+        \(shareRuleLiterals ? "" : "# 规则中的具体域名和 IP 已替换为 <域名N> / <IPN> 占位符\(revealed ? "；用户指令里写出的值保持原样" : "")。\n")
         """
         let body = (try? Yams.serialize(node: .mapping(.init(root.map { (scalar($0.0), $0.1) }, Tag(.map), .block)),
                                         indent: 2, width: -1, allowUnicode: true)) ?? ""
         return AnonymizedConfig(yaml: header + ConfigImporter.readableUnicode(body), context: context, rules: sentRules,
                                 comparison: PayloadComparison(sections: sections),
                                 ruleSetNames: Dictionary(providerNames.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a }))
+    }
+
+    /// True when `value` (3+ characters) appears in the lowercased instruction as a whole token:
+    /// "google" in "把 google 的规则删掉" or "google.com", not in "mygoogle" or "a.google".
+    static func typedInInstruction(_ value: String, _ typed: String) -> Bool {
+        let value = value.lowercased()
+        guard value.count >= 3, !typed.isEmpty else { return false }
+        func isWord(_ character: Character) -> Bool { character.isASCII && (character.isLetter || character.isNumber || character == "-" || character == "_") }
+        var start = typed.startIndex
+        while let range = typed.range(of: value, range: start..<typed.endIndex) {
+            let before = range.lowerBound == typed.startIndex ? nil : typed[typed.index(before: range.lowerBound)]
+            let after = range.upperBound == typed.endIndex ? nil : typed[range.upperBound]
+            // A dot before means a longer name or address ("0.0.0/8" inside "10.0.0.0/8").
+            if !(before.map { isWord($0) || $0 == "." } ?? false) && !(after.map(isWord) ?? false) { return true }
+            start = typed.index(after: range.lowerBound)
+        }
+        return false
     }
 
     static func anonymize(rule: String, label: (String) -> String, providerNames: [String: String],
@@ -258,7 +287,8 @@ public struct PayloadComparison: Sendable, Equatable {
     public static func rebuild(for payload: AIRequestPayload, source: String, regions: (ConfigDocument) -> [String: Region]) -> (comparison: PayloadComparison, exact: Bool)? {
         guard let document = try? ConfigDocument.parse(source) else { return nil }
         let shared = payload.shareRuleLiterals ?? !(payload.config ?? "").contains("已替换为 <域名N>")
-        let rebuilt = AnonymizedConfig.make(document: document, regions: regions(document), shareRuleLiterals: shared)
+        let rebuilt = AnonymizedConfig.make(document: document, regions: regions(document), shareRuleLiterals: shared,
+                                            instruction: payload.instruction)
         return (rebuilt.comparison, payload.config == nil || rebuilt.yaml == payload.config)
     }
 }

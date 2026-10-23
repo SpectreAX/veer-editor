@@ -85,7 +85,8 @@ public struct EditorEngine: Sendable {
 
     /// The anonymized payload a request would send; shown to the user per turn.
     public static func payload(for request: Request) -> AIRequestPayload {
-        let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
+        let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals,
+                                                instruction: request.prompt)
         var payload = AIRequestPayload(model: request.settings.modelLabel, exits: anonymized.context.exits.map(\.label),
                                        history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
                                        instruction: anonymized.context.anonymize(request.prompt),
@@ -111,7 +112,8 @@ public struct EditorEngine: Sendable {
             return try await handle(reply, request: request, progress: progress)
         }
 
-        let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
+        let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals,
+                                                instruction: request.prompt)
         let system = AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil, mode: request.mode)
         // Lookup results travel with the instruction (and are anonymized with it).
         let prompt = anonymized.context.anonymize(request.prompt + (hints.map { "\n\n" + $0.message } ?? ""))

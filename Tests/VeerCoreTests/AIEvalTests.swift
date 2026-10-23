@@ -45,12 +45,18 @@ struct AIEvalTests {
 
     enum Expect: Sendable, CustomStringConvertible {
         case plan([Check]), clarify, outOfScope, noChange
+        /// A clarification that offers at least two ready-to-run options.
+        case choices
         indirect case either(Expect, Expect)
+        /// The model checked domains against the draft before answering.
+        indirect case diagnosed(Expect)
 
         var description: String {
             switch self {
             case .plan(let checks): checks.map(\.description).joined(separator: "；")
             case .clarify: "追问"
+            case .choices: "追问并给出 2 个以上方案"
+            case .diagnosed(let then): "先检查域名，再\(then)"
             case .outOfScope: "超出范围"
             case .noChange: "无需修改"
             case let .either(first, second): "\(first) 或 \(second)"
@@ -70,7 +76,7 @@ struct AIEvalTests {
         .init(prompt: "哔哩哔哩一些 CDN 走了代理是怎么回事？",
               expect: .either(.plan([.service(sets: ["bilibili", "bilibili-cdn"], domains: ["bilivideo.com", "hdslb.com", "akamaized.net"], to: .direct)]), .clarify)),
         // Two reasonable ways and no proxy exit named: offer the choices (2026-10-23).
-        .init(prompt: "Steam 下载 CDN 走直连，其他域名如商店、社区走代理", expect: .clarify),
+        .init(prompt: "Steam 下载 CDN 走直连，其他域名如商店、社区走代理", expect: .choices),
         .init(prompt: "为什么 GitHub 的下载走了自动选择？我想让 GitHub 全部走美国",
               expect: .plan([.service(sets: ["github"], domains: ["github.com", "githubusercontent.com"], to: .region(.us))])),
         .init(prompt: "Netflix 走日本", expect: .plan([.service(sets: ["netflix"], domains: ["netflix.com"], to: .region(.jp))])),
@@ -120,6 +126,22 @@ struct AIEvalTests {
         .init(prompt: "把 google 的规则删掉", expect: .plan([.removes("google")])),
         .init(prompt: "测一下哪个节点最快", expect: .outOfScope),
         .init(prompt: "YouTube 走代理", expect: .clarify),
+        // 2026-10-23, modelled on real requests (names are placeholders).
+        // Diagnosis without a domain: the model has to check before it answers.
+        .init(prompt: "B站视频有时候走了代理，帮我看看",
+              expect: .diagnosed(.either(.plan([.service(sets: ["bilibili", "bilibili-cdn"], domains: ["bilivideo.com", "hdslb.com", "akamaized.net"], to: .direct)]), .clarify))),
+        // The proxy exit is named, so a plan is fine; offering the switchable-group choice is too.
+        .init(prompt: "Steam 下载 CDN 直连，其余 Steam 走美国", expect: .either(.plan([
+            .service(sets: ["steam@cn"], domains: ["steamcontent.com", "steamserver.net", "steampipe.akamaized.net", "steamcdn-a.akamaihd.net"], to: .direct),
+            .service(sets: ["steam"], domains: ["steampowered.com", "steamcommunity.com"], to: .region(.us)),
+        ]), .choices)),
+        .init(prompt: "新建一个 AI 服务策略组，不要香港节点，ChatGPT 和 Claude 走它", expect: .plan([
+            .service(sets: ["openai"], domains: ["openai.com", "chatgpt.com"], to: .newGroup([], excluding: [.hk])),
+            .service(sets: ["anthropic"], domains: ["anthropic.com", "claude.ai"], to: .newGroup([], excluding: [.hk])),
+        ])),
+        // A top-level domain without the dot, and an exit picked with @.
+        .init(prompt: "所有以 jp 结尾的域名都走 @日本出口",
+              expect: .either(.plan([.rule("DOMAIN-SUFFIX", "jp", to: .region(.jp))]), .plan([.service(sets: ["tld-jp"], to: .region(.jp))]))),
     ]
 
     // MARK: Checking
@@ -180,11 +202,16 @@ struct AIEvalTests {
         }
 
         /// nil when the output meets the expectation, otherwise what was missing.
-        func failure(_ expect: Expect, output: EditorEngine.Output) -> String? {
+        /// `checked`: the model asked Veer to check domains during the turn.
+        func failure(_ expect: Expect, output: EditorEngine.Output, checked: Bool = false) -> String? {
             switch (expect, output) {
             case let (.either(first, second), _):
-                guard let one = failure(first, output: output), let two = failure(second, output: output) else { return nil }
+                guard let one = failure(first, output: output, checked: checked), let two = failure(second, output: output, checked: checked) else { return nil }
                 return "\(one)；\(two)"
+            case let (.diagnosed(then), _):
+                return checked ? failure(then, output: output, checked: checked) : "没有检查域名就回答了"
+            case let (.choices, .clarification(_, options)):
+                return options.filter { $0.prompt != nil }.count >= 2 ? nil : "只给了 \(options.count) 个方案"
             case let (.plan(checks), .proposal(plan, _, _, _)):
                 let missing = checks.filter { !satisfied($0, by: plan) }
                 return missing.isEmpty ? nil : "缺少：" + missing.map(\.description).joined(separator: "；")
@@ -266,10 +293,17 @@ struct AIEvalTests {
         }
     }
 
+    final class Understanding: @unchecked Sendable {
+        var text: String?
+        var checked = false
+    }
+
     struct Outcome: Sendable {
         let prompt: String
         let failure: String?
         let got: String
+        /// The model's last reading of the instruction, to tell a prompt problem from a decoding one.
+        let understanding: String?
         let seconds: Double
         let requests: Int
         let tokens: Int
@@ -292,7 +326,9 @@ struct AIEvalTests {
 
         let document = try ConfigDocument.parse(SampleConfig.text)
         let context = Context(document: document, regions: Session(title: "", source: .sample, text: SampleConfig.text).regions(for: document.targets))
-        let selected = Self.cases.filter { filter == nil || $0.prompt.localizedCaseInsensitiveContains(filter!) }
+        // "a|b" runs every case containing a or b.
+        let filters = filter?.split(separator: "|").map(String.init)
+        let selected = Self.cases.filter { item in filters.map { $0.contains { item.prompt.localizedCaseInsensitiveContains($0) } } ?? true }
         print("AI EVAL \(provider.title) · \(settings.modelLabel) · \(selected.count) 条 · 并发 \(parallel)\(search.map { " · 搜索 \($0.provider.rawValue)" } ?? "")\(geo == nil ? "" : " · 本机地理数据")")
 
         func run(_ item: Case) async -> Outcome {
@@ -305,15 +341,19 @@ struct AIEvalTests {
             request.search = search
             let start = Date()
             let failure: String?, got: String
+            let understanding = Understanding()
             do {
-                let output = try await engine.run(request) { _ in }
-                failure = context.failure(item.expect, output: output)
+                let output = try await engine.run(request) { progress in
+                    if case .understanding(let text) = progress { understanding.text = text }
+                    if case .checking = progress { understanding.checked = true }
+                }
+                failure = context.failure(item.expect, output: output, checked: understanding.checked)
                 got = context.describe(output)
             } catch {
                 failure = "出错"
                 got = (error as? EditorError)?.message ?? (error as? AIFailure)?.message ?? "\(error)"
             }
-            return Outcome(prompt: item.prompt, failure: failure, got: got, seconds: Date().timeIntervalSince(start),
+            return Outcome(prompt: item.prompt, failure: failure, got: got, understanding: understanding.text, seconds: Date().timeIntervalSince(start),
                            requests: transport.requests, tokens: transport.tokens)
         }
 
@@ -335,7 +375,8 @@ struct AIEvalTests {
         print("\nAI EVAL 结果：\(passed)/\(outcomes.count) 通过（\(outcomes.isEmpty ? 0 : passed * 100 / outcomes.count)%）· 共 \(requests) 次请求\(tokens > 0 ? " · \(tokens) tokens" : "")")
         for outcome in outcomes where outcome.failure != nil {
             let expected = selected.first { $0.prompt == outcome.prompt }?.expect.description ?? ""
-            print("\n✗ \(outcome.prompt)\n  期望：\(expected)\n  问题：\(outcome.failure!)\n  得到：\(outcome.got)")
+            print("\n✗ \(outcome.prompt)\n  期望：\(expected)\n  问题：\(outcome.failure!)\n  得到：\(outcome.got)"
+                  + (outcome.understanding.map { "\n  理解：\($0)" } ?? ""))
         }
         if let minimum = env["VEER_AI_EVAL_MIN"].flatMap(Int.init) {
             #expect(passed * 100 >= minimum * max(outcomes.count, 1), "pass rate below \(minimum)%")
