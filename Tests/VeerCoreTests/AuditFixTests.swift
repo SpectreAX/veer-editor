@@ -4,6 +4,16 @@ import Testing
 
 /// Regression tests for the defects in docs/TEST_REPORT_2026-10-19.md (D1–D12).
 struct AuditFixTests {
+    /// "所有 .jp 域名走日本": the AI's DOMAIN-SUFFIX,jp was refused because a suffix needed a dot.
+    @Test func topLevelDomainSuffixesAreAllowed() throws {
+        #expect(throws: Never.self) { try MatchValidator.validate(type: "DOMAIN-SUFFIX", match: "jp") }
+        #expect(throws: EditorError.self) { try MatchValidator.validate(type: "DOMAIN", match: "jp") }
+        #expect { try MatchValidator.validate(type: "DOMAIN-SUFFIX", match: ".jp") } throws: { ($0 as? EditorError)?.message.contains("不要以点开头") == true }
+        let doc = try ConfigDocument.parse(SampleConfig.text)
+        let plan = EditPlan(operations: [.route(matchType: "DOMAIN-SUFFIX", match: "jp", targetId: doc.target(named: "日本出口")!.id)])
+        #expect(try PlanApplier.apply(plan, to: doc).candidate.contains("DOMAIN-SUFFIX,jp,日本出口"))
+    }
+
     static func sample() throws -> (ConfigDocument, [String: Region]) {
         let doc = try ConfigDocument.parse(SampleConfig.text)
         return (doc, Session(title: "", source: .sample, text: SampleConfig.text).regions(for: doc.targets))

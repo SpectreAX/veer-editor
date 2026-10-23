@@ -217,7 +217,11 @@ enum MatchValidator {
         }
         switch type {
         case "DOMAIN", "DOMAIN-SUFFIX":
-            guard match.matches(#"^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9-]+$"#) else { throw EditorError("域名格式无效：\(match)") }
+            // A suffix may be a whole top-level domain: DOMAIN-SUFFIX,jp covers every .jp site.
+            let labels = type == "DOMAIN-SUFFIX" ? "*" : "+"
+            guard match.matches(#"^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)"# + labels + #"[a-z0-9-]+$"#) else {
+                throw EditorError("域名格式无效：\(match)" + (match.hasPrefix(".") ? "（不要以点开头，例如顶级域写成 jp）" : ""))
+            }
         case "IP-CIDR", "IP-CIDR6":
             let parts = match.split(separator: "/", omittingEmptySubsequences: false)
             let v6 = type == "IP-CIDR6"
