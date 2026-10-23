@@ -78,7 +78,7 @@ struct AssistantTurn: View {
             case .noChange(let text):
                 Text(text).foregroundStyle(.secondary)
             case let .clarify(question, options):
-                ClarificationView(question: question, options: options, enabled: isLatest)
+                ClarificationView(question: question, options: options, enabled: isLatest, fromPlan: turn.executionMode == .plan)
             case let .clarification(question, suggestions):
                 ClarificationView(question: question, options: suggestions.map { ClarifyOption(label: $0) }, enabled: isLatest)
             case .outOfScope(let text):
@@ -108,6 +108,8 @@ struct ClarificationView: View {
     let question: String
     let options: [ClarifyOption]
     let enabled: Bool
+    /// The options came from a plan-mode answer: choosing one should produce changes.
+    var fromPlan = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -117,7 +119,9 @@ struct ClarificationView: View {
                     ForEach(options, id: \.self) { option in
                         // A resolved prompt replaces only the ambiguous phrase; otherwise send a short
                         // follow-up that the AI resolves against the conversation.
-                        Chip(text: option.label) { store.send(option.prompt ?? "走 @\(option.label)") }
+                        Chip(text: option.label) {
+                            store.send(option.prompt ?? "走 @\(option.label)", executionMode: fromPlan ? .manual : nil)
+                        }
                             .disabled(!enabled || store.isRunning)
                             .help(option.prompt ?? "走 @\(option.label)")
                     }
@@ -275,12 +279,14 @@ struct ProposalView: View {
                     Text("校验未通过，不能写入").font(.callout).foregroundStyle(Color.statusFailure)
                 } else if acceptedCount == 0 {
                     Text("至少选择一项").font(.callout).foregroundStyle(.secondary)
+                } else if let mode = turn.executionMode, let reason = mode.heldReason(validation: proposal.validation) {
+                    Text(reason).font(.callout).foregroundStyle(.secondary)
                 }
             case .undone:
                 StatusBadge(kind: .neutral, text: "已撤销")
                 if store.current?.redoStack.last == proposal.writtenTo { Button("重做") { store.redo() }.buttonStyle(.link).foregroundStyle(Color.veerAccent) }
             case .written:
-                StatusBadge(kind: .success, text: "已写入草稿")
+                StatusBadge(kind: .success, text: turn.autoWritten == true ? "已按\(turn.executionMode?.title ?? "")模式直接写入草稿" : "已写入草稿")
                 if store.current?.undoStack.last == proposal.writtenFrom, store.current?.draftText == proposal.writtenTo {
                     Button("撤销") { store.undo() }.buttonStyle(.link).foregroundStyle(Color.veerAccent)
                 }

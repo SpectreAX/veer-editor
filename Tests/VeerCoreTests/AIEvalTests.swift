@@ -69,6 +69,8 @@ struct AIEvalTests {
         // already sends Bilibili direct, so explaining is right too.
         .init(prompt: "哔哩哔哩一些 CDN 走了代理是怎么回事？",
               expect: .either(.plan([.service(sets: ["bilibili", "bilibili-cdn"], domains: ["bilivideo.com", "hdslb.com", "akamaized.net"], to: .direct)]), .clarify)),
+        // Two reasonable ways and no proxy exit named: offer the choices (2026-10-23).
+        .init(prompt: "Steam 下载 CDN 走直连，其他域名如商店、社区走代理", expect: .clarify),
         .init(prompt: "为什么 GitHub 的下载走了自动选择？我想让 GitHub 全部走美国",
               expect: .plan([.service(sets: ["github"], domains: ["github.com", "githubusercontent.com"], to: .region(.us))])),
         .init(prompt: "Netflix 走日本", expect: .plan([.service(sets: ["netflix"], domains: ["netflix.com"], to: .region(.jp))])),

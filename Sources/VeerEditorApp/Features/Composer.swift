@@ -79,6 +79,7 @@ struct ComposerView: View {
                         options(model: .full, compactSearch: true, hint: false)
                         options(model: .short, compactSearch: true, hint: false)
                         options(model: .icon, compactSearch: true, hint: false, compactMode: true)
+                        options(model: .icon, compactSearch: true, hint: false, compactMode: true, compactExecution: true)
                     }
                     if store.isRunning {
                         Button { store.cancel() } label: { Image(systemName: "stop.fill") }
@@ -112,9 +113,10 @@ struct ComposerView: View {
 
     enum ModelLabel { case full, short, icon }
 
-    private func options(model: ModelLabel, compactSearch: Bool, hint: Bool, compactMode: Bool = false) -> some View {
+    private func options(model: ModelLabel, compactSearch: Bool, hint: Bool, compactMode: Bool = false, compactExecution: Bool = false) -> some View {
         @Bindable var store = store
         return HStack(spacing: Spacing.sm) {
+            ExecutionModePicker(compact: compactExecution)
             ParseModePicker(compact: compactMode)
             if store.useAI { modelMenu(model) }
             ToggleChip(title: "联网搜索", symbol: "globe", isOn: $store.searchSettings.enabled, compact: compactSearch)

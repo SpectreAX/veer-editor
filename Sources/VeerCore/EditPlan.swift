@@ -121,11 +121,25 @@ extension EditPlan {
             return (.check(Array(domains.prefix(DomainChecker.maxDomains * 2))), understanding)
         }
         if let clarification = root["clarification"] {
-            guard Set(root.keys).isSubset(of: ["clarification", "understanding"]), let question = clarification as? String,
+            guard Set(root.keys).isSubset(of: ["clarification", "understanding", "options"]), let question = clarification as? String,
                   !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw EditorError("AI 同时返回了问题和修改，已拒绝。请重新生成。")
             }
-            return (.clarification(String(question.prefix(500)), options: []), understanding)
+            // Choices the user can click; each prompt is a complete instruction.
+            var options: [ClarifyOption] = []
+            if let raw = root["options"] {
+                guard let list = raw as? [[String: Any]], (1...4).contains(list.count) else {
+                    throw EditorError("options 必须是 1 到 4 个 {\"label\",\"prompt\"} 对象。")
+                }
+                for item in list {
+                    guard Set(item.keys) == ["label", "prompt"], let label = item["label"] as? String, let prompt = item["prompt"] as? String,
+                          !label.isEmpty, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        throw EditorError("每个选项都需要 label（按钮文字）和 prompt（选中后执行的完整指令）。")
+                    }
+                    options.append(ClarifyOption(label: String(label.prefix(40)), prompt: String(prompt.prefix(300))))
+                }
+            }
+            return (.clarification(String(question.prefix(500)), options: options), understanding)
         }
         guard Set(root.keys).isSubset(of: ["schemaVersion", "operations", "understanding"]),
               (root["schemaVersion"] as? NSNumber)?.intValue == 1,

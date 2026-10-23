@@ -32,6 +32,42 @@ struct StoreTests {
         for _ in 0..<200 where store.isRunning || !store.revalidating.isEmpty { try? await Task.sleep(for: .milliseconds(20)) }
     }
 
+    @Test func executionModesDecideWhatIsWrittenWithoutReview() async throws {
+        // Manual: waits for review.
+        let manual = makeStore()
+        manual.send("Netflix 走日本")
+        await waitIdle(manual)
+        #expect(manual.current?.turns.last?.proposal?.status == .pending && manual.current?.turns.last?.executionMode == .manual)
+
+        // Accept edits: validated changes go straight into the draft, and can be undone.
+        let accept = makeStore()
+        accept.executionMode = .acceptEdits
+        let before = try #require(accept.current?.draftText)
+        accept.send("Netflix 走日本")
+        await waitIdle(accept)
+        let turn = try #require(accept.current?.turns.last)
+        #expect(turn.proposal?.status == .written && turn.autoWritten == true && accept.current?.draftText != before)
+        accept.undo()
+        #expect(accept.current?.draftText == before)
+
+        // Auto: a rule set toward an existing exit is routine; a deletion waits.
+        let auto = makeStore()
+        auto.executionMode = .auto
+        auto.send("Netflix 走日本")
+        await waitIdle(auto)
+        #expect(auto.current?.turns.last?.proposal?.status == .written)
+        auto.send("删除 example.com 的规则")
+        await waitIdle(auto)
+        #expect(auto.current?.turns.last?.proposal?.status == .pending)
+
+        // A plan's option runs in manual mode.
+        let plan = makeStore()
+        plan.executionMode = .plan
+        plan.send("Netflix 走日本", executionMode: .manual)
+        await waitIdle(plan)
+        #expect(plan.current?.turns.last?.executionMode == .manual)
+    }
+
     @Test func writeUndoRedoKeepsTurnStatusInStep() async throws {
         let store = makeStore()
         store.send("Netflix 走日本，ChatGPT 走美国")

@@ -50,7 +50,7 @@ private struct ParseModeMenu: View {
             Text("解析方式").font(.callout).foregroundStyle(.secondary)
                 .padding(.horizontal, Spacing.sm)
                 .padding(.bottom, Spacing.xxs)
-            ModeRow(number: 1, symbol: "sparkles", title: "AI 解析",
+            ChoiceRow(number: 1, symbol: "sparkles", title: "AI 解析",
                     detail: "由 \(store.settings.provider.title) 的模型理解指令，支持复杂说法、追问和联网搜索；只发送匿名结构。",
                     selected: store.useAI) { choose(ai: true) }
             if store.useAI && !store.aiConfigured {
@@ -63,7 +63,7 @@ private struct ParseModeMenu: View {
                 .padding(.horizontal, Spacing.sm)
                 .padding(.bottom, Spacing.xs)
             }
-            ModeRow(number: 2, symbol: "text.magnifyingglass", title: "本地解析",
+            ChoiceRow(number: 2, symbol: "text.magnifyingglass", title: "本地解析",
                     detail: "在本机识别常见服务、域名、IP 和地区，不发送任何内容。",
                     selected: !store.useAI) { choose(ai: false) }
         }
@@ -74,39 +74,5 @@ private struct ParseModeMenu: View {
     private func choose(ai: Bool) {
         store.useAI = ai
         store.showingModePicker = false
-    }
-}
-
-/// One mode: icon, title and what it does, a check when current, and its number key.
-private struct ModeRow: View {
-    let number: Int
-    let symbol: String
-    let title: String
-    let detail: String
-    let selected: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-                Image(systemName: symbol).frame(width: Spacing.lg).foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text(title).font(.body)
-                    Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: Spacing.sm)
-                if selected { Image(systemName: "checkmark").foregroundStyle(Color.veerAccent).fontWeight(.semibold) }
-                Text(verbatim: "\(number)").font(.callout).foregroundStyle(.tertiary).frame(minWidth: Spacing.md)
-            }
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.sm)
-            .background(hovering ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: Radius.small))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: [])
-        .onHover { hovering = $0 }
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

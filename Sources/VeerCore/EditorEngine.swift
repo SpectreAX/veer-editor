@@ -48,6 +48,8 @@ public struct EditorEngine: Sendable {
         public var shareRuleLiterals: Bool
         /// Lets the model ask for searches; nil when search is off.
         public var search: SearchConfig?
+        /// What the conversation may do without asking; shapes the prompt (plan, full).
+        public var mode: ExecutionMode = .manual
 
         public init(prompt: String, draft: ConfigDocument, regions: [String: Region], useAI: Bool, settings: AISettings, apiKey: String?,
                     history: [(role: String, content: String)] = [], shareRuleLiterals: Bool = false) {
@@ -87,7 +89,8 @@ public struct EditorEngine: Sendable {
         var payload = AIRequestPayload(model: request.settings.modelLabel, exits: anonymized.context.exits.map(\.label),
                                        history: request.history.map { "\($0.role == "user" ? "用户" : "助手")：\($0.content)" },
                                        instruction: anonymized.context.anonymize(request.prompt),
-                                       system: AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil), config: anonymized.yaml)
+                                       system: AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil, mode: request.mode),
+                                       config: anonymized.yaml)
         payload.sourceDigest = AIRequestPayload.digest(request.draft.text)
         payload.shareRuleLiterals = request.shareRuleLiterals
         return payload
@@ -109,7 +112,7 @@ public struct EditorEngine: Sendable {
         }
 
         let anonymized = AnonymizedConfig.make(document: request.draft, regions: request.regions, shareRuleLiterals: request.shareRuleLiterals)
-        let system = AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil)
+        let system = AIClient.systemPrompt(config: anonymized.yaml, search: request.search != nil, mode: request.mode)
         // Lookup results travel with the instruction (and are anonymized with it).
         let prompt = anonymized.context.anonymize(request.prompt + (hints.map { "\n\n" + $0.message } ?? ""))
         let model = request.settings.modelLabel
@@ -129,7 +132,9 @@ public struct EditorEngine: Sendable {
             if !streaming, let reasoning = answer.reasoning, !reasoning.isEmpty { await progress(.reasoning(reasoning)) }
             do {
                 let decoded = try EditPlan.decodeReplyWithUnderstanding(answer.content)
-                if let understanding = decoded.understanding, !understanding.isEmpty { await progress(.understanding(understanding)) }
+                if let understanding = decoded.understanding, !understanding.isEmpty {
+                    await progress(.understanding(anonymized.context.restore(understanding)))
+                }
                 if case let .search(queries) = decoded.reply {
                     // Search, hand the results back, and ask again (at most `maxRounds` times).
                     guard let config = request.search else { throw EditorError("联网搜索未开启，不能请求搜索。请直接输出修改计划或澄清问题。") }
@@ -162,8 +167,18 @@ public struct EditorEngine: Sendable {
                     followUps += [("assistant", String(answer.content.prefix(8_000))), ("user", message)]
                     continue
                 }
+                if request.mode == .plan, case .plan = decoded.reply {
+                    throw EditorError("计划模式下不要输出修改计划。请用 clarification 写出分析，用 options 给出 2 到 3 个方案。")
+                }
                 if attempt == 0 { await progress(.finished(0, detail: "已由 \(model) 解析")) }
-                return try await handle(anonymized.restoringRuleSetNames(in: decoded.reply), request: request, progress: progress)
+                var reply = anonymized.restoringRuleSetNames(in: decoded.reply)
+                if case let .clarification(question, options) = reply {
+                    // The user sees, and later sends, real exit names, not the model's labels.
+                    reply = .clarification(anonymized.context.restore(question), options: options.map {
+                        ClarifyOption(label: anonymized.context.restore($0.label), prompt: $0.prompt.map(anonymized.context.restore))
+                    })
+                }
+                return try await handle(reply, request: request, progress: progress)
             } catch let error as EditorError where attempt < Self.repairAttempts {
                 // Send the problem back once instead of showing the user an unusable answer.
                 attempt += 1

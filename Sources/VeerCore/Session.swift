@@ -155,6 +155,10 @@ public struct Turn: Codable, Identifiable, Sendable, Equatable {
     public var lookups: LookupHints?
     /// Domains the model had Veer test against the draft's rules.
     public var checks: [CheckRecord]?
+    /// The execution mode the instruction ran in (nil before modes existed: manual).
+    public var executionMode: ExecutionMode?
+    /// The proposal was written into the draft by the mode, without review.
+    public var autoWritten: Bool?
 
     public init(prompt: String, mode: Mode, steps: [Step], outcome: Outcome = .running, now: Date = .now) {
         id = UUID()

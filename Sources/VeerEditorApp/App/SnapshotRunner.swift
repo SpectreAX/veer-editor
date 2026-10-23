@@ -266,6 +266,34 @@ enum SnapshotRunner {
         store.sessionKey = "sk-snapshot"
         store.useAI = true
         await shot("28-model-choice")
+        // Execution modes: the menu, and full permission in the composer.
+        NSApp.activate()
+        store.showingExecutionModePicker = true
+        await settle(1.8)
+        if let popover = NSApp.windows.first(where: { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }) {
+            capture(popover, to: directory.appendingPathComponent("28-exec-menu-\(suffix).png"), composite: true)
+        }
+        store.showingExecutionModePicker = false
+        await settle(0.4)
+        store.executionMode = .full
+        await shot("28-exec-full")
+        store.executionMode = .manual
+        // A question with choices, as the AI offers them.
+        if var session = store.current {
+            var asked = Turn(prompt: "Steam 下载 CDN 走直连，其他域名如商店、社区走代理", mode: .ai(model: "deepseek-v4-pro · 深度思考 · 高"), steps: [])
+            asked.understanding = "Steam 下载 CDN 直连，商店、社区等其余 Steam 流量走代理；没有指定代理出口，这个需求有两种常见做法。"
+            asked.outcome = .clarify("请选择下载 CDN 的处理方式：", options: [
+                ClarifyOption(label: "下载 CDN 直连，其余走自动选择", prompt: "Steam 下载 CDN 直连，其余 Steam 走自动选择"),
+                ClarifyOption(label: "新建下载 CDN 切换组，其余走自动选择", prompt: "为 Steam 下载 CDN 新建策略组（包含 DIRECT 和自动选择），其余 Steam 走自动选择"),
+            ])
+            asked.executionMode = .manual
+            session.turns.append(asked)
+            store.current = session
+            await shot("34-options")
+            session.turns.removeLast()
+            store.current = session
+            await settle(0.3)
+        }
         store.searchSettings.enabled = false
         await shot("28-search-off")
         store.searchSettings.enabled = true
@@ -380,6 +408,14 @@ enum SnapshotRunner {
         store.useAI = false
         store.sessionKey = nil
         store.selectProvider(.deepSeek)
+
+        // Accept edits: a validated local instruction goes straight into the draft.
+        store.useAI = false
+        store.executionMode = .acceptEdits
+        store.send("Twitch 走日本")
+        await waitIdle(store)
+        await shot("34-auto-written")
+        store.executionMode = .manual
 
         store.newImport()
         await shot("20-start-with-sessions")

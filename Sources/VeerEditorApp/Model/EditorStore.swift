@@ -82,6 +82,8 @@ final class EditorStore {
         }
     }
     var useAI: Bool { didSet { defaults.set(useAI, forKey: "useAI") } }
+    var executionMode: ExecutionMode { didSet { defaults.set(executionMode.rawValue, forKey: "executionMode") } }
+    var showingExecutionModePicker = false
     var validateBeforeExport: Bool { didSet { defaults.set(validateBeforeExport, forKey: "validateBeforeExport") } }
     /// Send literal domains/IPs from existing rules to the AI instead of placeholders. Off by default.
     var shareRuleLiterals: Bool { didSet { defaults.set(shareRuleLiterals, forKey: "shareRuleLiterals") } }
@@ -145,6 +147,7 @@ final class EditorStore {
         if settings.baseURL == Self.snapshotTestAddress { settings.baseURL = settings.provider.baseURL }
         self.settings = settings
         useAI = defaults.object(forKey: "useAI") as? Bool ?? false
+        executionMode = defaults.string(forKey: "executionMode").flatMap(ExecutionMode.init(rawValue:)) ?? .manual
         validateBeforeExport = defaults.object(forKey: "validateBeforeExport") as? Bool ?? true
         shareRuleLiterals = defaults.object(forKey: "shareRuleLiterals") as? Bool ?? false
         searchSettings = defaults.data(forKey: "searchSettings").flatMap { try? JSONDecoder().decode(SearchSettings.self, from: $0) } ?? SearchSettings()
@@ -418,7 +421,9 @@ final class EditorStore {
 
     // MARK: Conversation
 
-    func send(_ raw: String? = nil) {
+    /// `executionMode` overrides the composer's mode for this one instruction (a plan's chosen option
+    /// runs in manual mode, so it produces changes to review rather than another plan).
+    func send(_ raw: String? = nil, executionMode override: ExecutionMode? = nil) {
         let prompt = (raw ?? composerText).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, var session = current, let draft, !isRunning else { return }
         if raw == nil { composerText = "" }
@@ -428,10 +433,12 @@ final class EditorStore {
         let mode: Turn.Mode = useAI ? .ai(model: settings.modelLabel) : .local
         let steps = EditorEngine.stepTitles.enumerated().map { Turn.Step(id: $0.offset, title: $0.element, state: .waiting) }
         var turn = Turn(prompt: prompt, mode: mode, steps: steps)
+        turn.executionMode = override ?? executionMode
         var request = EditorEngine.Request(prompt: prompt, draft: draft, regions: session.regions(for: draft.targets), useAI: useAI,
                                            settings: settings, apiKey: apiKey, history: history(for: session, context: draft),
                                            shareRuleLiterals: shareRuleLiterals)
         request.search = useAI ? searchConfig : nil
+        request.mode = turn.executionMode ?? .manual
         if useAI { turn.sentPayload = EditorEngine.payload(for: request) }
         invalidatePending(in: &session)
         session.turns.append(turn)
@@ -579,6 +586,7 @@ final class EditorStore {
         if case .proposal = output {
             inspectedTurnID = turnID
             diffScope = .turn
+            autoWriteIfAllowed(sessionID: sessionID, turnID: turnID)
         }
         announce("处理完成")
     }
@@ -699,6 +707,17 @@ final class EditorStore {
         let count = proposal.accepted.count
         showToast("已写入草稿 \(count) 项，尚未导出", undoable: true)
         announce("已写入草稿")
+    }
+
+    /// Writes a fresh proposal when its turn's execution mode allows it (see `ExecutionMode`).
+    private func autoWriteIfAllowed(sessionID: UUID, turnID: UUID) {
+        guard current?.id == sessionID, let turn = current?.turns.first(where: { $0.id == turnID }),
+              let mode = turn.executionMode, let proposal = turn.proposal,
+              mode.writesAutomatically(items: proposal.items.filter { proposal.accepted.contains($0.id) }, validation: proposal.validation),
+              canWrite(turn) else { return }
+        write(turnID: turnID)
+        mutateTurn(sessionID: sessionID, turnID: turnID) { $0.autoWritten = true }
+        showToast("\(mode.title)模式：已直接写入草稿 \(proposal.accepted.count) 项，尚未导出", undoable: true)
     }
 
     func discard(turnID: UUID) {

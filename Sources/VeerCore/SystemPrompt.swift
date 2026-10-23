@@ -89,7 +89,7 @@ public enum SystemPrompt {
 
     /// `config` is the anonymized YAML from `AnonymizedConfig`.
     /// `search`: the user allowed web search, so the model may ask Veer to look things up.
-    public static func build(config: String, search: Bool = false) -> String {
+    public static func build(config: String, search: Bool = false, mode: ExecutionMode = .manual) -> String {
         return """
         # 角色
 
@@ -102,7 +102,7 @@ public enum SystemPrompt {
         \(search ? "四选一" : "三选一")，只能使用下列字段：
 
         1. 修改计划：{"understanding":"…","schemaVersion":1,"operations":[…]}，1 到 32 项操作。
-        2. 澄清问题：{"understanding":"…","clarification":"简短的中文问题"}，不能同时带 operations。
+        2. 澄清问题：{"understanding":"…","clarification":"简短的中文问题","options":[{"label":"按钮文字","prompt":"选中后执行的完整指令"}]}，不能同时带 operations；options 可选，1 到 4 个。
         3. 请求本机检查：{"understanding":"…","check":{"domains":["…"]}}，见下方“排查”。
         \(search ? "4. 请求联网搜索：{\"understanding\":\"…\",\"search\":{\"queries\":[\"…\"]}}，见下方“联网搜索”。\n" : "")
         understanding 必填：一两句中文，说明你如何理解这条指令（涉及哪些服务、走哪里或排除哪里）以及你做的假设。它会展示给用户，让用户确认你没有误解。
@@ -178,12 +178,13 @@ public enum SystemPrompt {
 
         之前的用户与助手消息属于同一个编辑会话。像“那就走香港”“用策略组2”这样的简短追问，要结合之前提到的服务或域名，返回一个完整计划。对已写入草稿的修改不要重复，除非用户要求。
 
-        \(search ? searchSection : "")\(lookupSection)\(diagnoseSection)# 何时澄清而不是修改
+        \(search ? searchSection : "")\(lookupSection)\(diagnoseSection)\(mode.promptSection)# 何时澄清而不是修改
 
         · “排除 / 不要 / 除了 + 地区”是可执行的：用操作 E 的 excludeRegions。只有用户说“不要走某个具体出口”而没有任何替代线索时才澄清。
         · 同一匹配值的冲突修改、组合需求里有无法支持的部分：对整个需求澄清，不要返回部分计划。
         · 一个服务走“台湾和香港”这类多个地区或多个出口，不是矛盾：用操作 E 新建策略组。
         · 测速、延迟、换节点、开关 VPN、切换运行中的策略组、修改 DNS：说明 Veer 只编辑分流规则（可以新建策略组），并澄清。
+        · 同一需求有两种以上合理做法、取决于用户偏好时，用澄清并在 options 里给出 2 到 3 个方案，每个方案的 prompt 是一条完整、可直接执行的指令（出口写匿名标签）。例如“Steam 下载 CDN 走直连，商店和社区走代理”：方案一“Steam 下载 CDN 直连，其余 Steam 走<代理出口>”；方案二“为 Steam 下载 CDN 新建策略组（包含 DIRECT 和<代理出口>，由用户运行时切换），其余 Steam 走<代理出口>”。“走代理”没有指明出口时，方案里用 MATCH 规则的出口，并在按钮文字里写明。
 
         # 示例（id 仅为示意，实际必须使用下方匿名配置中的 id）
 

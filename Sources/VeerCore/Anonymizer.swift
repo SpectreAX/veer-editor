@@ -64,6 +64,28 @@ public struct AnonymousContext: Sendable {
 
     public func label(forTargetID id: String) -> String? { exits.first { $0.id == id }?.label }
 
+    /// Puts real exit names back into text the model wrote (a question, an option): labels with or
+    /// without their region (“策略组2（日本）”, “策略组2”) and target ids.
+    public func restore(_ text: String) -> String {
+        var pairs: [(String, String)] = labels.flatMap { name, label in
+            [(label, name), (String(label.prefix { $0 != "（" }), name)]
+        }
+        let names = Dictionary(labels.map { ($0.label, $0.name) }, uniquingKeysWith: { first, _ in first })
+        pairs += exits.map { ($0.id, names[$0.label] ?? $0.label) }
+        pairs.sort { $0.0.count > $1.0.count }
+        var output = "", index = text.startIndex
+        outer: while index < text.endIndex {
+            for (key, value) in pairs where text[index...].hasPrefix(key) {
+                output += value
+                index = text.index(index, offsetBy: key.count)
+                continue outer
+            }
+            output.append(text[index])
+            index = text.index(after: index)
+        }
+        return output
+    }
+
     /// Label for a real exit name; built-ins keep their name.
     public func label(forName name: String) -> String? {
         if ConfigDocument.builtinPolicies.contains(name) { return name }

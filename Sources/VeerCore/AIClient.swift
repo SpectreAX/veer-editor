@@ -504,8 +504,8 @@ public struct AIClient: Sendable {
     }
 
     /// Instructions for every Veer client; see `SystemPrompt`.
-    public static func systemPrompt(config: String, search: Bool = false) -> String {
-        SystemPrompt.build(config: config, search: search)
+    public static func systemPrompt(config: String, search: Bool = false, mode: ExecutionMode = .manual) -> String {
+        SystemPrompt.build(config: config, search: search, mode: mode)
     }
 }
 

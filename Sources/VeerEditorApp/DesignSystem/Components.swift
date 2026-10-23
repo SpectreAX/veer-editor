@@ -285,3 +285,39 @@ struct SegmentedControl<Value: Hashable>: View {
         .tint(Color.selectionNeutral)
     }
 }
+
+/// A menu choice like Claude's mode menu: icon, title, what it does, a check when current, and
+/// its number key (pressed while the menu is open).
+struct ChoiceRow: View {
+    let number: Int
+    let symbol: String
+    let title: String
+    let detail: String
+    let selected: Bool
+    var tint: Color? = nil
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                Image(systemName: symbol).frame(width: Spacing.lg).foregroundStyle(tint ?? .secondary)
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    Text(title).font(.body).foregroundStyle(tint ?? .primary)
+                    Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: Spacing.sm)
+                if selected { Image(systemName: "checkmark").foregroundStyle(Color.veerAccent).fontWeight(.semibold) }
+                Text(verbatim: "\(number)").font(.callout).foregroundStyle(.tertiary).frame(minWidth: Spacing.md)
+            }
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.sm)
+            .background(hovering ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: Radius.small))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: [])
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
