@@ -64,12 +64,8 @@ extension EditorStore {
             case "GEOSITE": used["geosite:\(payload.lowercased())"] = parts.target
             case "GEOIP": used["geoip:\(payload.lowercased())"] = parts.target
             case "RULE-SET":
-                guard let url = draft.providers.first(where: { $0.key == payload })?.url,
-                      let components = URL(string: url)?.pathComponents, components.count >= 2 else { continue }
-                let kind = components[components.count - 2]
-                guard kind == "geosite" || kind == "geoip" else { continue }
-                let name = (components.last! as NSString).deletingPathExtension
-                used["\(kind):\(name)"] = parts.target
+                guard let set = draft.providers.first(where: { $0.key == payload })?.url.flatMap(MetaCubeXSet.init(url:)) else { continue }
+                used["\(set.kind):\(set.name)"] = parts.target
             default: continue
             }
         }

@@ -742,3 +742,29 @@ native/macos-editor/
   - **结果：** 用本机会话的副本复现了空白并确认已修复。三种情况都正常：直接切换、滚到中部或顶部后切换、切换后向上滚动；“回到最新”只在向上滚动后出现。
 - **代价：** 已确认会话之间切到 29 轮的会话，中位数约 158 ms（上次优化后为 116 ms，最初为 162 ms）。
 - **测试运行：** 截图与性能测试不再弹出“有尚未导出的修改”确认框。
+
+### 2026-10-23：测试页用本机地理数据给出确定结果
+
+- **问题：** 检查器“测试”页只能判断域名规则和 IP-CIDR。GEOSITE、GEOIP 和规则集都标成“需要运行时判断”，最多给出“很可能命中”。
+- **改动：** `RuleMatcher.match` 新增可选的 `Context`，包含 geosite / geoip 数据、域名解析出的地址，以及规则集名称到 MetaCubeX 规则集的对应关系。没有 `Context` 时行为不变。
+  - **GEOSITE：** 用本机 geosite.dat 判断，关键词和正则条目也算。
+  - **MetaCubeX 的 geosite 规则集（RULE-SET）：** 只按完整域名和后缀条目判断，因为 .mrs 文件不含关键词和正则。
+  - **GEOIP、MetaCubeX 的 geoip 规则集、IP-CIDR：** 输入是 IP 时直接判断；输入是域名时，用解析出的第一个地址判断。`GEOIP,LAN` 对应 private。
+  - **`no-resolve`：** 带 `no-resolve` 的规则不会为域名解析；没有地理数据时，`GEOIP,…,no-resolve` 也不再列为“无法判断”。
+  - **无法读取的规则集：** ACL4SSR、blackmatrix7、自定义地址等规则集仍标为无法在本机判断。
+  - **命中说明：** 由地理数据判断的命中会注明“由本机 MetaCubeX 地理数据确认”，用到地址时附上该地址。
+- **DNS：** 只有某条规则真正需要 IP 时才解析域名。解析用阿里 DoH，避开本机代理的 Fake-IP，只发送域名，停止输入 0.4 秒后才发出。页面显示解析结果；解析失败时说明 IP 规则无法在本机判断。
+- **没有地理数据时：** 保持原来的结果（包括“很可能命中”），并提示下载地理数据后能多判断哪些规则，可以就地下载。
+- **代码：** 新增 `MetaCubeXSet(url:)`，`EditorStore.usedRuleSets()` 也改用它。
+- **测试：**
+  - **自动化测试**（`RuleMatcherGeoTests`，使用合成地理数据），覆盖：
+    - geosite 规则集确定命中，关键词条目只对 GEOSITE 有效；
+    - 无法读取的规则集仍跳过；
+    - 按解析地址判断 GEOIP,CN 和 IP-CIDR；
+    - 还没有地址时提示需要解析；
+    - IP 输入命中 geoip 规则集，`GEOIP,LAN`；
+    - 没有地理数据时与原来一致。
+  - **截图**（真实地理数据）：
+    - `www.netflix.com` 确定命中 `RULE-SET,netflix`（`33-test-ruleset-*`）；
+    - `www.baidu.com` 经阿里 DoH 解析为 153.3.238.127，确定命中 `GEOIP,CN`（`33b-test-geoip-*`）；
+    - 没有地理数据时的提示（`10-test-light`）。

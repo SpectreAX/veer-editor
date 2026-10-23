@@ -288,29 +288,50 @@ struct RuleRow: View {
 struct TestTab: View {
     @Environment(EditorStore.self) private var store
     @Environment(\.openWindow) private var openWindow
+    @State private var geosite: GeoSiteDatabase?
+    @State private var geoip: GeoIPDatabase?
+    @State private var resolution: Resolution?
+
+    /// The domain's addresses from 阿里 DoH, fetched only when an IP rule needs them.
+    enum Resolution: Equatable {
+        case resolving(String)
+        case resolved(String, [String])
+        case failed(String, String)
+    }
+
+    private func context(for domain: String) -> RuleMatcher.Context {
+        var addresses: [String] = []
+        if case let .resolved(resolved, found) = resolution, resolved == domain { addresses = found }
+        return RuleMatcher.Context(geosite: geosite, geoip: geoip, addresses: addresses, providers: store.draft?.providers ?? [])
+    }
 
     var body: some View {
         @Bindable var store = store
+        let domain = RuleMatcher.normalize(store.testQuery)
+        let current = domain.flatMap { domain in store.draft.map { RuleMatcher.match(domain: domain, rules: $0.rules, context: context(for: domain)) } }
+        let candidate = domain.flatMap { domain in
+            pendingCandidate.flatMap { store.document(for: $0) }.map { RuleMatcher.match(domain: domain, rules: $0.rules, context: context(for: domain)) }
+        }
+        let needsAddress = current?.needsAddress == true || candidate?.needsAddress == true
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.lg) {
                 VStack(alignment: .leading, spacing: Spacing.sm) {
                     Text("测试域名或 IP").font(.headline)
                     TextField("例如 www.netflix.com 或 192.168.1.5", text: $store.testQuery).textFieldStyle(.roundedBorder)
-                    Text("按草稿规则顺序查找第一条命中的规则，域名和 IP 都可以。只在本机计算，不发起网络请求。").font(.caption).foregroundStyle(.secondary)
+                    Text("按草稿规则顺序查找第一条命中的规则，域名和 IP 都可以。GEOSITE、GEOIP 与 MetaCubeX 规则集用本机地理数据判断；规则需要 IP 时，用阿里 DoH 解析域名（只发送域名）。")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if store.testQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                     EmptyView()
-                } else if let domain = RuleMatcher.normalize(store.testQuery) {
-                    if let draft = store.draft {
-                        MatchResultView(title: "当前草稿", result: RuleMatcher.match(domain: domain, rules: draft.rules))
-                    }
-                    if let pending = pendingCandidate, let candidate = store.document(for: pending) {
-                        MatchResultView(title: "写入候选后", result: RuleMatcher.match(domain: domain, rules: candidate.rules))
-                    }
+                } else if let domain {
+                    if let current { MatchResultView(title: "当前草稿", result: current) }
+                    if let candidate { MatchResultView(title: "写入候选后", result: candidate) }
+                    resolutionNote(for: domain, needed: needsAddress)
+                    geodataNote
                 } else {
                     StatusBadge(kind: .warning, text: "这不是有效的域名或 IP 地址。").font(.callout)
                 }
-                if let domain = RuleMatcher.normalize(store.testQuery) {
+                if let domain {
                     Button {
                         store.lookupRequest = LookupRequest(tab: .ruleSets, text: domain)
                         store.lookupTab = .ruleSets
@@ -323,6 +344,66 @@ struct TestTab: View {
                 }
             }
             .padding(Spacing.lg)
+        }
+        .onAppear { store.refreshGeoStatus() }
+        .task(id: store.geoStatus) {
+            geosite = try? await store.geo.geosite()
+            geoip = try? await store.geo.geoip()
+        }
+        .task(id: needsAddress ? domain : nil) { await resolve(needsAddress ? domain : nil) }
+    }
+
+    @ViewBuilder private func resolutionNote(for domain: String, needed: Bool) -> some View {
+        switch resolution {
+        case .resolving(let name) where name == domain:
+            HStack(spacing: Spacing.xs) {
+                ProgressView().controlSize(.small)
+                Text("正在用阿里 DoH 解析 \(domain)…").font(.caption).foregroundStyle(.secondary)
+            }
+        case let .resolved(name, addresses) where name == domain:
+            Text("\(domain) 解析为 \(addresses.prefix(3).joined(separator: "、"))（阿里 DoH），IP 规则按第一个地址判断。")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        case let .failed(name, reason) where name == domain && needed:
+            StatusBadge(kind: .warning, text: "无法解析 \(domain)：\(reason)。需要 IP 的规则无法在本机判断。", compact: true)
+                .fixedSize(horizontal: false, vertical: true)
+        default:
+            EmptyView()
+        }
+    }
+
+    /// What downloading the geodata would add, while it is missing.
+    @ViewBuilder private var geodataNote: some View {
+        if geosite == nil || geoip == nil {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+                if case .running(let file) = store.geoDownload {
+                    ProgressView().controlSize(.small)
+                    Text("正在下载 \(file.rawValue)…").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("下载地理数据后，GEOSITE、GEOIP 与 MetaCubeX 规则集也能确定是否命中（约 30 MB，查询在本机进行）。")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button("下载") { store.downloadGeoData() }.buttonStyle(.link).foregroundStyle(Color.veerAccent).font(.caption)
+                }
+            }
+        }
+    }
+
+    private func resolve(_ domain: String?) async {
+        guard let domain else { return }
+        switch resolution {
+        case .resolved(domain, _), .failed(domain, _): return
+        default: break
+        }
+        // Wait for typing to stop before sending anything.
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled else { return }
+        resolution = .resolving(domain)
+        do {
+            let result = try await DNSResolver().lookup(domain, type: .a, server: DNSServer.presets[1].server)
+            let addresses = result.answers.compactMap(\.address).map(\.description)
+            resolution = addresses.isEmpty ? .failed(domain, "\(result.status)，没有 IPv4 地址") : .resolved(domain, addresses)
+        } catch {
+            guard !Task.isCancelled else { return }
+            resolution = .failed(domain, (error as? EditorError)?.message ?? error.localizedDescription)
         }
     }
 
@@ -353,13 +434,18 @@ struct MatchResultView: View {
                     StatusBadge(kind: result.certain ? .success : .info,
                                 text: "第 \(index + 1) 条 → \(result.target ?? "?")" + (result.certain ? "" : "（前面有规则需要运行时判断）"))
                     Text(rule).font(Typography.codeSmall).textSelection(.enabled)
+                    if result.byGeodata {
+                        Text("由本机 MetaCubeX 地理数据确认" + (result.address.map { "（按 \($0) 判断）" } ?? "") + "。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             } else {
                 StatusBadge(kind: .warning, text: "没有本地可判定的规则命中，也没有 MATCH 兜底。")
             }
             if !result.skipped.isEmpty {
                 VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text("以下 \(result.skipped.count) 条需要代理运行时才能判断（如 GEOIP、IP 规则），已跳过；实际可能更早命中：").font(.caption).foregroundStyle(.secondary)
+                    Text("以下 \(result.skipped.count) 条无法在本机判断（非 MetaCubeX 的规则集、没有地理数据，或还没有解析出 IP），已跳过；实际可能更早命中：")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     ForEach(result.skipped.prefix(5), id: \.index) { skipped in
                         Text("第 \(skipped.index + 1) 条  \(skipped.rule)").font(Typography.codeSmall).foregroundStyle(.secondary).lineLimit(1)
                     }

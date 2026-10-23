@@ -332,6 +332,31 @@ enum SnapshotRunner {
             store.send("api.openai.com 和 1.1.1.1 走美国")
             await waitIdle(store)
             await shot("32-local-lookup")
+
+            // The test tab decides rule sets and GEOIP from local data (GEOIP needs 阿里 DoH, so it is live).
+            var staged = Session(title: "测试页示例", source: .pasted, text: """
+            proxies:
+              - {name: 日本 01, type: ss, server: a.invalid, port: 1, cipher: aes-128-gcm, password: p}
+            proxy-groups:
+              - {name: 日本出口, type: select, proxies: [日本 01]}
+            rule-providers:
+              netflix: {type: http, behavior: domain, format: mrs, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo/geosite/netflix.mrs", path: ./ruleset/netflix.mrs, interval: 86400}
+            rules:
+              - RULE-SET,netflix,日本出口
+              - GEOIP,CN,DIRECT
+              - MATCH,日本出口
+            """)
+            staged.exitsConfirmed = true
+            store.sessions.insert(staged, at: 0)
+            store.select(staged.id)
+            store.inspectorPresented = true
+            store.inspectorTab = .test
+            for (query, name, wait) in [("www.netflix.com", "33-test-ruleset", 1.5), ("www.baidu.com", "33b-test-geoip", 3.0)] {
+                store.testQuery = query
+                await settle(wait)
+                await shot(name)
+            }
+            store.testQuery = ""
         }
         store.useAI = false
         store.sessionKey = nil
