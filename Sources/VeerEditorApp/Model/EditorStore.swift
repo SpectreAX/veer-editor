@@ -266,13 +266,16 @@ final class EditorStore {
         var result: ConfigImporter.Result
         var analysis: ProfileAnalysis?
         var usage: SubscriptionUsage?
-        /// Kept in memory only, for "刷新"; never persisted.
-        var link: URL?
+        /// Subscription links, kept in memory only for "刷新"; never persisted. Several when merged.
+        var links: [URL] = []
         var parsedAt = Date()
-        /// Node clean-up for generated configs; changing it re-parses `rawText`.
+        /// Node clean-up for generated configs; changing it re-parses `parts`.
         var options = ImportOptions()
+        /// Why the latest options were not applied (invalid pattern, nothing left); the preview
+        /// keeps the last result meanwhile.
+        var optionsProblem: String?
         /// The downloaded or pasted content, kept in memory until the import is confirmed.
-        var rawText = ""
+        var parts: [ConfigImporter.Part] = []
     }
 
     enum ImportStage {
@@ -301,11 +304,20 @@ final class EditorStore {
     func submitImportInput() {
         let input = importInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return }
-        if SubscriptionFetcher.looksLikeLink(input) {
+        if let lines = Self.subscriptionLines(input) {
+            do { fetchSubscriptions(try lines.map(SubscriptionFetcher.validate)) } catch { importStage = .failed(message(for: error)) }
+        } else if SubscriptionFetcher.looksLikeLink(input) {
             do { fetchSubscription(try SubscriptionFetcher.validate(input)) } catch { importStage = .failed(message(for: error)) }
         } else {
             prepareImport(text: input, title: "粘贴的配置", source: .pasted)
         }
+    }
+
+    /// Two or more subscription links, one per line (to merge); nil for anything else.
+    static func subscriptionLines(_ input: String) -> [String]? {
+        let lines = input.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard lines.count > 1, lines.allSatisfy(SubscriptionFetcher.looksLikeLink) else { return nil }
+        return lines
     }
 
     func chooseImportFile() {
@@ -334,27 +346,43 @@ final class EditorStore {
 
     func prepareImport(text: String, title: String, source: Session.Source, usage: SubscriptionUsage? = nil, link: URL? = nil,
                        options: ImportOptions = .init()) {
+        prepareImport(parts: [.init(label: title, text: text)], title: title, source: source, usage: usage,
+                      links: link.map { [$0] } ?? [], options: options)
+    }
+
+    func prepareImport(parts: [ConfigImporter.Part], title: String, source: Session.Source, usage: SubscriptionUsage? = nil,
+                       links: [URL] = [], options: ImportOptions = .init()) {
         do {
-            let result = try ConfigImporter.normalize(text, options: options)
-            _ = try ConfigDocument.parse(result.text)
+            let result = try Self.parse(parts, options: options)
             importStage = .preview(PendingImport(title: title, source: source, result: result,
-                                                 analysis: ProfileAnalysis.analyze(result.text), usage: usage, link: link,
-                                                 options: options, rawText: text))
+                                                 analysis: ProfileAnalysis.analyze(result.text), usage: usage, links: links,
+                                                 options: options, parts: parts))
         } catch {
             importStage = .failed(message(for: error))
         }
     }
 
+    static func parse(_ parts: [ConfigImporter.Part], options: ImportOptions) throws -> ConfigImporter.Result {
+        let result = try ConfigImporter.merge(parts, options: options)
+        _ = try ConfigDocument.parse(result.text)
+        return result
+    }
+
     /// Re-parses the previewed content with changed clean-up options; the preview stays in place.
+    /// Options that cannot be applied leave the last result and say why.
     func setPendingImportOptions(_ options: ImportOptions) {
-        guard case .preview(let pending) = importStage, pending.options != options else { return }
-        prepareImport(text: pending.rawText, title: pending.title, source: pending.source, usage: pending.usage,
-                      link: pending.link, options: options)
-        if case .preview(var updated) = importStage {
-            updated.id = pending.id
-            updated.parsedAt = pending.parsedAt
-            importStage = .preview(updated)
+        guard case .preview(var pending) = importStage, pending.options != options else { return }
+        pending.options = options
+        do {
+            if let problem = options.problem { throw EditorError(problem) }
+            let result = try Self.parse(pending.parts, options: options)
+            pending.result = result
+            pending.analysis = ProfileAnalysis.analyze(result.text)
+            pending.optionsProblem = nil
+        } catch {
+            pending.optionsProblem = message(for: error)
         }
+        importStage = .preview(pending)
     }
 
     func fetchSubscription(_ url: URL, options: ImportOptions = .init()) {
@@ -376,8 +404,52 @@ final class EditorStore {
         }
     }
 
+    /// Downloads several subscriptions at once and merges their nodes.
+    func fetchSubscriptions(_ urls: [URL], options: ImportOptions = .init()) {
+        guard urls.count > 1 else {
+            if let url = urls.first { fetchSubscription(url, options: options) }
+            return
+        }
+        importTask?.cancel()
+        importStage = .loading("正在下载 \(urls.count) 个订阅…")
+        showingImport = true
+        importTask = Task { [weak self] in
+            do {
+                let responses = try await withThrowingTaskGroup(of: (Int, SubscriptionResponse).self) { group in
+                    for (index, url) in urls.enumerated() {
+                        group.addTask {
+                            do { return (index, try await SubscriptionFetcher().fetch(url)) } catch let error as EditorError {
+                                throw EditorError("\(url.host ?? "订阅")：\(error.message)")
+                            }
+                        }
+                    }
+                    var all: [(Int, SubscriptionResponse)] = []
+                    for try await item in group { all.append(item) }
+                    return all.sorted { $0.0 < $1.0 }.map(\.1)
+                }
+                guard !Task.isCancelled else { return }
+                // Labels prefix shared node names, so two subscriptions never share one.
+                var labels: [String] = []
+                for (url, response) in zip(urls, responses) {
+                    let base = response.title ?? SubscriptionFetcher.subStoreDownload(url)?.name ?? url.host ?? "订阅"
+                    var label = base, number = 2
+                    while labels.contains(label) { label = "\(base) \(number)"; number += 1 }
+                    labels.append(label)
+                }
+                let parts = zip(labels, responses).map { ConfigImporter.Part(label: $0, text: $1.text) }
+                let hosts = urls.compactMap(\.host).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+                self?.prepareImport(parts: parts, title: "合并订阅（\(urls.count) 个）", source: .subscription(host: hosts.joined(separator: " + ")),
+                                    links: urls, options: options)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.importStage = .failed(self?.message(for: error) ?? "")
+            }
+        }
+    }
+
     func refreshPendingImport() {
-        if case .preview(let pending) = importStage, let link = pending.link { fetchSubscription(link, options: pending.options) }
+        guard case .preview(let pending) = importStage, !pending.links.isEmpty else { return }
+        fetchSubscriptions(pending.links, options: pending.options)
     }
 
     /// Creates the session from the previewed import.

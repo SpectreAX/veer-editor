@@ -286,7 +286,7 @@ struct StoreTests {
         #expect(store.showingImport)
         store.submitImportInput()
         guard case .preview(let pending) = store.importStage else { Issue.record("expected preview"); return }
-        #expect(pending.title == "粘贴的配置" && pending.analysis?.proxyCount == 5 && pending.link == nil)
+        #expect(pending.title == "粘贴的配置" && pending.analysis?.proxyCount == 5 && pending.links.isEmpty)
         #expect(store.sessions.count == before)
         store.cancelImport()
         #expect(store.sessions.count == before && !store.showingImport)
@@ -398,5 +398,33 @@ struct StoreTests {
         store.send("/test www.example.com")
         #expect(store.inspectorTab == .test && store.testQuery == "www.example.com")
         #expect(store.current?.turns.isEmpty == true)
+    }
+
+    @Test func nodeFiltersKeepThePreviewWhenTheyCannotApply() throws {
+        let store = makeStore()
+        let links = ["香港 01", "日本 01", "美国 01"].enumerated()
+            .map { "trojan://pw@n\($0.offset).example.invalid:443#\($0.element.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed)!)" }
+        store.prepareImport(parts: [.init(label: "A", text: links.joined(separator: "\n"))], title: "A", source: .pasted)
+        guard case .preview(let first) = store.importStage else { Issue.record("no preview"); return }
+        #expect(first.result.nodeCount == 3)
+
+        store.setPendingImportOptions(ImportOptions(include: "香港|日本"))
+        guard case .preview(let filtered) = store.importStage else { Issue.record("no preview"); return }
+        #expect(filtered.id == first.id && filtered.result.nodeCount == 2 && filtered.optionsProblem == nil)
+
+        // An invalid pattern, or one that leaves nothing, keeps the last result and says why.
+        store.setPendingImportOptions(ImportOptions(include: "香港("))
+        guard case .preview(let invalid) = store.importStage else { Issue.record("no preview"); return }
+        #expect(invalid.result.nodeCount == 2 && invalid.optionsProblem == "“保留”不是有效的正则表达式")
+        store.setPendingImportOptions(ImportOptions(include: "德国"))
+        guard case .preview(let empty) = store.importStage else { Issue.record("no preview"); return }
+        #expect(empty.result.nodeCount == 2 && empty.optionsProblem?.contains("没有剩下节点") == true)
+    }
+
+    @Test func severalSubscriptionLinksAreMerged() {
+        #expect(EditorStore.subscriptionLines("https://a.example.invalid/sub\n\n  https://b.example.invalid/sub  ") == ["https://a.example.invalid/sub", "https://b.example.invalid/sub"])
+        // One link, or a link next to config content, is not a merge.
+        #expect(EditorStore.subscriptionLines("https://a.example.invalid/sub") == nil)
+        #expect(EditorStore.subscriptionLines("https://a.example.invalid/sub\ntrojan://pw@h.example.invalid:443#A") == nil)
     }
 }

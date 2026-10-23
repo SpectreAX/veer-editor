@@ -9,12 +9,48 @@ public struct ImportOptions: Sendable, Equatable {
     public var removeDuplicates = true
     /// Prefixes the region flag to names that lack one. Off by default: it renames nodes.
     public var addRegionFlags = false
+    /// Keeps only nodes whose name matches (case-insensitive regular expression, so `香港|日本`
+    /// works as a keyword list). Empty keeps all.
+    public var include = ""
+    /// Drops nodes whose name matches. Applied after `include`.
+    public var exclude = ""
+    /// Applied in order to the names left after filtering.
+    public var renames: [RenameRule] = []
 
-    public init(removeInfoNodes: Bool = true, removeDuplicates: Bool = true, addRegionFlags: Bool = false) {
+    public init(removeInfoNodes: Bool = true, removeDuplicates: Bool = true, addRegionFlags: Bool = false,
+                include: String = "", exclude: String = "", renames: [RenameRule] = []) {
         self.removeInfoNodes = removeInfoNodes
         self.removeDuplicates = removeDuplicates
         self.addRegionFlags = addRegionFlags
+        self.include = include
+        self.exclude = exclude
+        self.renames = renames
     }
+
+    /// Why a pattern cannot be used, in plain words; nil when all are valid.
+    public var problem: String? {
+        if NodeCleanup.regex(include) == nil, !include.isBlank { return "“保留”不是有效的正则表达式" }
+        if NodeCleanup.regex(exclude) == nil, !exclude.isBlank { return "“排除”不是有效的正则表达式" }
+        if let index = renames.firstIndex(where: { NodeCleanup.regex($0.find) == nil && !$0.find.isBlank }) {
+            return "第 \(index + 1) 条重命名的“查找”不是有效的正则表达式"
+        }
+        return nil
+    }
+}
+
+/// Find (case-insensitive regular expression) and replace in node names; `$1` refers to a group.
+public struct RenameRule: Sendable, Equatable, Hashable, Codable {
+    public var find: String
+    public var replace: String
+
+    public init(find: String, replace: String) {
+        self.find = find
+        self.replace = replace
+    }
+}
+
+extension String {
+    var isBlank: Bool { trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
 /// What the clean-up changed, reported in the import note.
@@ -23,19 +59,26 @@ public struct CleanupReport: Sendable, Equatable {
     /// Names of the removed copies; the first node with the same settings is kept.
     public var duplicates: [String] = []
     public var flagged = 0
+    /// Nodes left out by the keep / exclude patterns.
+    public var filtered = 0
+    public var renamed = 0
 
-    public init(infoNodes: [String] = [], duplicates: [String] = [], flagged: Int = 0) {
+    public init(infoNodes: [String] = [], duplicates: [String] = [], flagged: Int = 0, filtered: Int = 0, renamed: Int = 0) {
         self.infoNodes = infoNodes
         self.duplicates = duplicates
         self.flagged = flagged
+        self.filtered = filtered
+        self.renamed = renamed
     }
 
-    public var isEmpty: Bool { infoNodes.isEmpty && duplicates.isEmpty && flagged == 0 }
+    public var isEmpty: Bool { infoNodes.isEmpty && duplicates.isEmpty && flagged == 0 && filtered == 0 && renamed == 0 }
 
     public var summary: String? {
         var parts: [String] = []
         if !infoNodes.isEmpty { parts.append("已移除 \(infoNodes.count) 个信息节点（\(Self.sample(infoNodes))）") }
         if !duplicates.isEmpty { parts.append("\(parts.isEmpty ? "已移除 " : "")\(duplicates.count) 个重复节点") }
+        if filtered > 0 { parts.append("按筛选条件去掉了 \(filtered) 个节点") }
+        if renamed > 0 { parts.append("重命名了 \(renamed) 个节点") }
         if flagged > 0 { parts.append("为 \(flagged) 个节点添加了地区旗帜") }
         return parts.isEmpty ? nil : parts.joined(separator: "、") + "。"
     }
@@ -88,6 +131,16 @@ enum NodeCleanup {
         }
     }
 
+    /// nil for an empty or invalid pattern.
+    static func regex(_ pattern: String) -> NSRegularExpression? {
+        guard !pattern.isBlank else { return nil }
+        return try? NSRegularExpression(pattern: pattern.trimmingCharacters(in: .whitespaces), options: [.caseInsensitive])
+    }
+
+    static func matches(_ regex: NSRegularExpression, _ name: String) -> Bool {
+        regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)) != nil
+    }
+
     static func hasFlag(_ name: String) -> Bool {
         name.unicodeScalars.contains { (0x1F1E6...0x1F1FF).contains($0.value) }
     }
@@ -116,6 +169,28 @@ enum NodeCleanup {
                 if seen.insert(fingerprint(proxy)).inserted { return true }
                 report.duplicates.append(name)
                 return false
+            }
+        }
+        if let problem = options.problem { throw EditorError(problem) }
+        let before = kept.count
+        if let include = regex(options.include) { kept = kept.filter { matches(include, $0.0) } }
+        if let exclude = regex(options.exclude) { kept.removeAll { matches(exclude, $0.0) } }
+        report.filtered = before - kept.count
+        if kept.isEmpty, before > 0 {
+            throw EditorError("按“保留 / 排除”筛选后没有剩下节点。请放宽筛选条件。")
+        }
+        let renames = options.renames.compactMap { rule in regex(rule.find).map { ($0, rule.replace) } }
+        if !renames.isEmpty {
+            kept = kept.map { name, proxy in
+                var renamed = name
+                for (regex, template) in renames {
+                    renamed = regex.stringByReplacingMatches(in: renamed, range: NSRange(renamed.startIndex..., in: renamed), withTemplate: template)
+                }
+                renamed = renamed.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+                // A rule that empties a name leaves it as it was.
+                guard !renamed.isEmpty, renamed != name else { return (name, proxy) }
+                report.renamed += 1
+                return (renamed, proxy)
             }
         }
         if options.addRegionFlags {

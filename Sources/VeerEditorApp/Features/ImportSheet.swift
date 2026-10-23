@@ -37,6 +37,12 @@ struct ImportInputView: View {
     private var detected: (text: String, ok: Bool)? {
         let input = store.importInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty else { return nil }
+        if let lines = EditorStore.subscriptionLines(input) {
+            guard lines.allSatisfy({ (try? SubscriptionFetcher.validate($0)) != nil }) else {
+                return ("其中有 HTTP 链接不是本机或局域网地址，其他订阅请使用 HTTPS", false)
+            }
+            return ("识别为 \(lines.count) 个订阅链接，将分别下载后合并节点", true)
+        }
         guard SubscriptionFetcher.looksLikeLink(input) else { return ("识别为配置内容，将在本机解析", true) }
         guard let url = try? SubscriptionFetcher.validate(input) else { return ("HTTP 链接只能指向本机或局域网地址，其他订阅请使用 HTTPS", false) }
         return SubscriptionFetcher.subStoreDownload(url) == nil ? ("识别为订阅链接，将下载并解析", true)
@@ -48,7 +54,7 @@ struct ImportInputView: View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
             VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("导入配置").font(.title3.weight(.semibold))
-                Text("选择文件、粘贴订阅链接，或直接粘贴配置内容。Mihomo / Clash YAML、Base64 订阅和分享链接都会自动识别。订阅链接需为 HTTPS；本机或局域网的 Sub-Store 等服务可用 HTTP。")
+                Text("选择文件、粘贴订阅链接，或直接粘贴配置内容。Mihomo / Clash YAML、Base64 订阅和分享链接都会自动识别；每行一个订阅链接可以合并多个订阅。订阅链接需为 HTTPS；本机或局域网的 Sub-Store 等服务可用 HTTP。")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             ZStack(alignment: .topLeading) {

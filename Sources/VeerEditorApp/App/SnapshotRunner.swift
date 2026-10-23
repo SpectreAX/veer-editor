@@ -156,6 +156,22 @@ enum SnapshotRunner {
                             source: .subscription(host: "sub.example.invalid"),
                             usage: SubscriptionUsage(upload: 3_221_225_472, download: 41_875_931_136, total: 214_748_364_800, expire: Date(timeIntervalSince1970: 1_798_761_600)))
         await shot("19d-import-preview-subscription", size: CGSize(width: 1320, height: 900))
+        // Two subscriptions merged; "🇭🇰 香港 01" exists in both and gets its subscription's name.
+        let second = """
+        proxies:
+          - {name: 🇭🇰 香港 01, type: ss, server: hk.b.example.invalid, port: 443, cipher: aes-128-gcm, password: b}
+          - {name: 🇸🇬 新加坡 IPLC 01, type: ss, server: sg.b.example.invalid, port: 443, cipher: aes-128-gcm, password: b}
+          - {name: 🇯🇵 日本 IPLC 02, type: ss, server: jp.b.example.invalid, port: 443, cipher: aes-128-gcm, password: b}
+        """
+        let parts: [ConfigImporter.Part] = [.init(label: "TAG_Demo", text: Data(demo.joined(separator: "\n").utf8).base64EncodedString()),
+                                             .init(label: "备用机场", text: second)]
+        let mergeLinks = [URL(string: "https://sub.example.invalid/a")!, URL(string: "https://b.example.invalid/sub")!]
+        store.prepareImport(parts: parts, title: "合并订阅（2 个）", source: .subscription(host: "sub.example.invalid + b.example.invalid"), links: mergeLinks)
+        await shot("19e-import-merged", size: CGSize(width: 1320, height: 900))
+        store.prepareImport(parts: parts, title: "合并订阅（2 个）", source: .subscription(host: "sub.example.invalid + b.example.invalid"), links: mergeLinks,
+                            options: ImportOptions(include: "香港|日本|新加坡", exclude: "Hy2|AnyTLS",
+                                                   renames: [.init(find: #"\s*IPLC\s*"#, replace: " 专线 "), .init(find: "^备用机场 ", replace: "[B] ")]))
+        await shot("19f-import-filter-rename", size: CGSize(width: 1320, height: 900))
         store.cancelImport()
         await settle(0.4)
         let links = [

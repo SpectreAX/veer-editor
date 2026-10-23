@@ -68,7 +68,10 @@ struct ProfilePreviewView: View {
 
     /// "Sub-Store · mihomo · 127.0.0.1" for a Sub-Store download, otherwise source and format.
     private var subtitle: String {
-        if let link = pending.link, let download = SubscriptionFetcher.subStoreDownload(link) {
+        if pending.links.count > 1 {
+            return "\(pending.source.label) · \(pending.result.format.label)"
+        }
+        if let link = pending.links.first, let download = SubscriptionFetcher.subStoreDownload(link) {
             return ["Sub-Store", download.target, link.host].compactMap { $0 }.joined(separator: " · ")
         }
         return "\(pending.source.label) · \(pending.result.format.label)"
@@ -79,13 +82,17 @@ struct ProfilePreviewView: View {
             ProfileSummaryView(title: pending.title, subtitle: subtitle,
                                timestamp: "解析于 \(pending.parsedAt.formatted(date: .numeric, time: .standard))",
                                usage: pending.usage, note: pending.result.note, analysis: pending.analysis,
-                               cleanup: pending.result.format == .mihomoYAML ? nil : ImportCleanupControls(options: pending.options))
+                               cleanup: pending.result.format == .mihomoYAML ? nil
+                                   : ImportCleanupControls(options: pending.options, problem: pending.optionsProblem))
+            // A new parse (refresh, new import) reloads the clean-up fields from its options;
+            // option edits keep the same id, so typing is not interrupted.
+            .id(pending.id)
             Divider()
             HStack(spacing: Spacing.md) {
                 Label("文件解析完成", systemImage: "checkmark.circle").foregroundStyle(.secondary).font(.callout)
                 Spacer()
-                if pending.link != nil {
-                    Button("刷新") { store.refreshPendingImport() }.help("重新下载订阅并解析")
+                if !pending.links.isEmpty {
+                    Button("刷新") { store.refreshPendingImport() }.help(pending.links.count > 1 ? "重新下载全部订阅并合并" : "重新下载订阅并解析")
                 }
                 Button("取消") { store.cancelImport() }.keyboardShortcut(.cancelAction).neutralControl()
                 Button("导入并开始编辑") { store.confirmPendingImport() }
@@ -100,22 +107,88 @@ struct ProfilePreviewView: View {
     }
 }
 
-/// Switches for the clean-up Veer applies to configs it generates from subscriptions.
+/// Node clean-up for configs Veer generates from subscriptions: switches, keep / exclude
+/// patterns and rename rules. Text edits are applied after a short pause; a pattern that cannot
+/// be used is reported here and the preview keeps its last result.
 struct ImportCleanupControls: View {
     @Environment(EditorStore.self) private var store
     let options: ImportOptions
+    let problem: String?
+    @State private var include = ""
+    @State private var exclude = ""
+    @State private var renames: [RenameRow] = []
+
+    struct RenameRow: Identifiable {
+        let id = UUID()
+        var find = ""
+        var replace = ""
+    }
 
     var body: some View {
-        HStack(spacing: Spacing.lg) {
-            Text("节点清理").font(.callout.weight(.medium))
-            toggle("移除信息节点", \.removeInfoNodes, help: "去掉名称是剩余流量、到期时间或官网等提示的假节点；用量已从订阅响应头读取")
-            toggle("移除重复节点", \.removeDuplicates, help: "设置与前面某个节点完全相同（仅名称不同）的节点只保留第一个")
-            toggle("添加地区旗帜", \.addRegionFlags, help: "在能识别地区、但还没有旗帜的节点名称前加上国旗")
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.lg) {
+                Text("节点处理").font(.callout.weight(.medium))
+                toggle("移除信息节点", \.removeInfoNodes, help: "去掉名称是剩余流量、到期时间或官网等提示的假节点；用量已从订阅响应头读取")
+                toggle("移除重复节点", \.removeDuplicates, help: "设置与前面某个节点完全相同（仅名称不同）的节点只保留第一个")
+                toggle("添加地区旗帜", \.addRegionFlags, help: "在能识别地区、但还没有旗帜的节点名称前加上国旗")
+                Spacer(minLength: 0)
+            }
+            .toggleStyle(.checkbox)
+            Grid(alignment: .leading, horizontalSpacing: Spacing.md, verticalSpacing: Spacing.sm) {
+                GridRow {
+                    Text("保留").foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+                    TextField("名称匹配才保留，例如 香港|日本|新加坡", text: $include)
+                }
+                GridRow {
+                    Text("排除").foregroundStyle(.secondary)
+                    TextField("名称匹配就去掉，例如 0\\.1x|测试|IPv6", text: $exclude)
+                }
+                ForEach($renames) { $row in
+                    GridRow {
+                        Text(row.id == renames.first?.id ? "重命名" : "").foregroundStyle(.secondary)
+                        HStack(spacing: Spacing.sm) {
+                            TextField("查找", text: $row.find)
+                            Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                            TextField("替换为（可留空）", text: $row.replace)
+                            Button { renames.removeAll { $0.id == row.id } } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.borderless).help("删除这条规则").accessibilityLabel("删除这条重命名规则")
+                        }
+                    }
+                }
+                GridRow {
+                    Text(renames.isEmpty ? "重命名" : "").foregroundStyle(.secondary)
+                    Button { renames.append(RenameRow()) } label: { Label("添加重命名规则", systemImage: "plus") }
+                        .buttonStyle(.link).foregroundStyle(Color.veerAccent)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            if let problem {
+                StatusBadge(kind: .warning, text: "\(problem.hasSuffix("。") ? String(problem.dropLast()) : problem)。预览仍是上一次的结果。", compact: true)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("按节点名称匹配，用正则表达式且不区分大小写；重命名按顺序执行，可以用 $1 引用括号里的内容。修改后自动重新解析。")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .toggleStyle(.checkbox)
         .font(.callout)
+        .panel(padding: Spacing.md)
+        .onAppear {
+            include = options.include
+            exclude = options.exclude
+            renames = options.renames.map { RenameRow(find: $0.find, replace: $0.replace) }
+        }
+        .task(id: textKey) {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            var changed = options
+            changed.include = include
+            changed.exclude = exclude
+            changed.renames = renames.filter { !$0.find.isEmpty }.map { RenameRule(find: $0.find, replace: $0.replace) }
+            store.setPendingImportOptions(changed)
+        }
     }
+
+    private var textKey: [String] { [include, exclude] + renames.flatMap { [$0.find, $0.replace] } }
 
     private func toggle(_ title: String, _ key: WritableKeyPath<ImportOptions, Bool>, help: String) -> some View {
         Toggle(title, isOn: Binding(get: { options[keyPath: key] }, set: { value in
