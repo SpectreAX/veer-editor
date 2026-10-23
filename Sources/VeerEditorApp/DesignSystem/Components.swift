@@ -315,6 +315,39 @@ struct SegmentedControl<Value: Hashable>: View {
     }
 }
 
+/// A key or key combination shown as a keycap, e.g. "⇧↩" or "1": one surface step up with a
+/// hairline edge, no gradient or shadow. Decorative for VoiceOver; the action's label says it.
+struct KeyCap: View {
+    let keys: String
+
+    var body: some View {
+        Text(verbatim: keys)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, Spacing.xxs / 2)
+            .frame(minWidth: Spacing.lg)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: Radius.tiny))
+            .overlay(RoundedRectangle(cornerRadius: Radius.tiny).strokeBorder(Color.separatorLine))
+            .accessibilityHidden(true)
+    }
+}
+
+/// Keycap followed by what it does, for hint rows.
+struct ShortcutHint: View {
+    let keys: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            KeyCap(keys: keys)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(keys) \(label)")
+    }
+}
+
 /// A menu choice like Claude's mode menu: icon, title, what it does, a check when current, and
 /// its number key (pressed while the menu is open).
 struct ChoiceRow: View {
@@ -337,7 +370,7 @@ struct ChoiceRow: View {
                 }
                 Spacer(minLength: Spacing.sm)
                 if selected { Image(systemName: "checkmark").foregroundStyle(Color.veerAccent).fontWeight(.semibold) }
-                Text(verbatim: "\(number)").font(.callout).foregroundStyle(.tertiary).frame(minWidth: Spacing.md)
+                KeyCap(keys: "\(number)")
             }
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.sm)

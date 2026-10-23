@@ -14,6 +14,8 @@ nonisolated enum Spacing {
 }
 
 nonisolated enum Radius {
+    /// Keycaps only.
+    static let tiny: CGFloat = 4
     static let small: CGFloat = 6
     static let medium: CGFloat = 10
     static let large: CGFloat = 16

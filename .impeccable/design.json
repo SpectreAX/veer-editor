@@ -1,0 +1,391 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T08:36:43+00:00",
+  "title": "Design System: Veer AI Editor",
+  "extensions": {
+    "colorMeta": {
+      "veer-green": {
+        "role": "primary",
+        "displayName": "Veer Green",
+        "canonical": "oklch(61.6% 0.153 151.8)",
+        "tonalRamp": [
+          "#001400",
+          "#003600",
+          "#00560C",
+          "#007830",
+          "#1A9B51",
+          "#4BC073",
+          "#73E596",
+          "#C1FFD0"
+        ]
+      },
+      "veer-green-dark": {
+        "role": "primary",
+        "displayName": "Veer Green (dark)",
+        "canonical": "oklch(75.2% 0.163 155.3)",
+        "tonalRamp": [
+          "#001500",
+          "#003700",
+          "#005812",
+          "#007A34",
+          "#009D55",
+          "#2FC277",
+          "#5FE89A",
+          "#B9FFD2"
+        ]
+      },
+      "bubble-wash": {
+        "role": "primary",
+        "displayName": "Bubble Wash",
+        "canonical": "oklch(94.5% 0.025 156.7)",
+        "tonalRamp": [
+          "#060D09",
+          "#1B2920",
+          "#37463D",
+          "#56665C",
+          "#77877C",
+          "#99AA9F",
+          "#BDCEC3",
+          "#E7F2EA"
+        ]
+      },
+      "bubble-wash-dark": {
+        "role": "primary",
+        "displayName": "Bubble Wash (dark)",
+        "canonical": "oklch(36.2% 0.046 155.2)",
+        "tonalRamp": [
+          "#030F06",
+          "#102C1B",
+          "#2D4937",
+          "#4C6956",
+          "#6D8B76",
+          "#8FAE99",
+          "#B2D3BC",
+          "#E1F4E7"
+        ]
+      },
+      "selection-graphite": {
+        "role": "neutral",
+        "displayName": "Selection Graphite",
+        "canonical": "oklch(50.1% 0.005 286.2)",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#252527",
+          "#424244",
+          "#616164",
+          "#828285",
+          "#A5A5A8",
+          "#C9C9CC",
+          "#EEEEF0"
+        ]
+      },
+      "selection-graphite-dark": {
+        "role": "neutral",
+        "displayName": "Selection Graphite (dark)",
+        "canonical": "oklch(51.2% 0.008 286.1)",
+        "tonalRamp": [
+          "#0B0B0D",
+          "#252529",
+          "#414146",
+          "#616166",
+          "#828287",
+          "#A4A4AA",
+          "#C8C8CE",
+          "#EEEEF1"
+        ]
+      },
+      "status-warning": {
+        "role": "semantic",
+        "displayName": "Warning (system orange)",
+        "canonical": "oklch(76.5% 0.175 62.6)",
+        "tonalRamp": [
+          "#250000",
+          "#580000",
+          "#7D1800",
+          "#A23F00",
+          "#C86300",
+          "#F08700",
+          "#FFAC35",
+          "#FFDFA4"
+        ]
+      },
+      "status-failure": {
+        "role": "semantic",
+        "displayName": "Failure (system red)",
+        "canonical": "oklch(65.4% 0.232 28.7)",
+        "tonalRamp": [
+          "#320000",
+          "#700000",
+          "#9A0000",
+          "#C30000",
+          "#ED241E",
+          "#FF5647",
+          "#FF7F6C",
+          "#FFCAB9"
+        ]
+      },
+      "status-info": {
+        "role": "semantic",
+        "displayName": "Info (system blue)",
+        "canonical": "oklch(60.3% 0.218 257.4)",
+        "tonalRamp": [
+          "#000040",
+          "#00008B",
+          "#002EB1",
+          "#0056D8",
+          "#047BFF",
+          "#3CA1FF",
+          "#64C7FF",
+          "#B6F1FF"
+        ]
+      },
+      "window-surface": {
+        "role": "neutral",
+        "displayName": "Window Surface (system)",
+        "canonical": "oklch(94.3% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "raised-surface": {
+        "role": "neutral",
+        "displayName": "Raised Surface (system)",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "raised-surface-dark": {
+        "role": "neutral",
+        "displayName": "Raised Surface (dark, system)",
+        "canonical": "oklch(23.5% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display (title2 semibold)",
+        "purpose": "窗口或空状态的唯一大标题、概览关键数字。"
+      },
+      "headline": {
+        "displayName": "Headline (title3 semibold)",
+        "purpose": "表单、弹窗和查询页标题。"
+      },
+      "title": {
+        "displayName": "Title (headline)",
+        "purpose": "卡片、状态视图和查询结果标题。"
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "对话正文、菜单项标题。"
+      },
+      "label": {
+        "displayName": "Label (callout)",
+        "purpose": "控件、建议标签、状态徽章、说明。"
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "次要细节、标签、键帽、快捷键提示。"
+      },
+      "code": {
+        "displayName": "Code (SF Mono)",
+        "purpose": "规则、规则集、域名、IP、YAML。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-list",
+        "value": "0 4px 12px rgba(0,0,0,0.12)",
+        "purpose": "只用于输入框上方的 @ 补全浮层。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "quick",
+        "value": "ease-out 150ms",
+        "purpose": "悬停、按下、开关状态变化（Motion.quick）。"
+      },
+      {
+        "name": "standard",
+        "value": "ease-in-out 220ms",
+        "purpose": "内容出现、展开收起（Motion.standard）。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact",
+        "value": "1100px"
+      },
+      {
+        "name": "min-window",
+        "value": "960px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "每个视图唯一的主操作（写入草稿、发送），系统 glassProminent + Veer 绿。",
+      "html": "<button class=\"ds-btn-primary\">写入草稿</button>",
+      "css": ".ds-btn-primary { font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; font-size: 13px; background: #1F9E54; color: #fff; border: none; border-radius: 9999px; padding: 6px 16px; transition: filter .15s ease-out; } .ds-btn-primary:hover { filter: brightness(1.06); } .ds-btn-primary:active { filter: brightness(.92); } .ds-btn-primary:focus-visible { outline: 3px solid rgba(31,158,84,.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Pill Button",
+      "kind": "button",
+      "refersTo": "pill-button",
+      "description": "输入框底栏的图标按钮：中性底色，悬停和按下时表面提升。",
+      "html": "<button class=\"ds-pill\" aria-label=\"执行模式：手动\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"><path d=\"M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11V4a1.5 1.5 0 0 1 3 0v7M14 11V5.5a1.5 1.5 0 0 1 3 0V13M17 9.5a1.5 1.5 0 0 1 3 0V15a7 7 0 0 1-7 7h-1a7 7 0 0 1-6-3.4L3.5 14a1.5 1.5 0 0 1 2.6-1.5L8 15\"/></svg></button>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; color: rgba(0,0,0,.85); background: rgba(0,0,0,.06); border: none; border-radius: 9999px; padding: 4px 10px; transition: background .15s ease-out; } .ds-pill:hover { background: rgba(0,0,0,.10); } .ds-pill:active { background: rgba(0,0,0,.14); } .ds-pill:focus-visible { outline: 3px solid rgba(0,122,255,.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Toggle Chip (on)",
+      "kind": "chip",
+      "refersTo": "toggle-chip-on",
+      "description": "开关开启：绿色底、绿色描边、绿色图标，并标记为已选中。",
+      "html": "<button class=\"ds-toggle\" aria-pressed=\"true\" aria-label=\"联网搜索\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18\"/></svg></button>",
+      "css": ".ds-toggle { display: inline-flex; align-items: center; color: #1F9E54; background: rgba(31,158,84,.14); border: 1px solid rgba(31,158,84,.4); border-radius: 9999px; padding: 3px 9px; transition: background .15s ease-out; } .ds-toggle:hover { background: rgba(31,158,84,.20); } .ds-toggle:focus-visible { outline: 3px solid rgba(31,158,84,.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Suggestion Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "建议指令：抬升表面、淡绿细边，悬停时绿色底。",
+      "html": "<button class=\"ds-chip\">YouTube 走香港</button>",
+      "css": ".ds-chip { font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; font-size: 12px; color: rgba(0,0,0,.85); background: #fff; border: 1px solid rgba(31,158,84,.35); border-radius: 9999px; padding: 6px 12px; transition: background .15s ease-out; } .ds-chip:hover { background: rgba(31,158,84,.12); } .ds-chip:focus-visible { outline: 3px solid rgba(31,158,84,.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "小标签：策略组、新增、宽泛。",
+      "html": "<span class=\"ds-tag\">宽泛</span> <span class=\"ds-tag ds-tag-green\">新增</span>",
+      "css": ".ds-tag { font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; font-size: 10px; font-weight: 500; color: rgba(0,0,0,.5); background: rgba(0,0,0,.08); border-radius: 9999px; padding: 2px 6px; } .ds-tag-green { color: #1F9E54; background: rgba(31,158,84,.12); }"
+    },
+    {
+      "name": "KeyCap + Shortcut Hint",
+      "kind": "custom",
+      "refersTo": "keycap",
+      "description": "快捷键显示为键帽：表面提升一级加细边，无渐变、无阴影。",
+      "html": "<span class=\"ds-hint\"><kbd class=\"ds-key\">↩</kbd> 发送</span> <span class=\"ds-hint\"><kbd class=\"ds-key\">⇧↩</kbd> 换行</span> <span class=\"ds-hint\"><kbd class=\"ds-key\">@</kbd> 选择出口</span>",
+      "css": ".ds-hint { font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; font-size: 10px; color: rgba(0,0,0,.5); display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; } .ds-key { font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; font-size: 10px; font-weight: 500; color: rgba(0,0,0,.5); background: rgba(0,0,0,.06); border: 1px solid rgba(0,0,0,.1); border-radius: 4px; padding: 1px 4px; min-width: 16px; text-align: center; }"
+    },
+    {
+      "name": "Choice Row",
+      "kind": "custom",
+      "refersTo": "choice-row-hover",
+      "description": "菜单选择：图标、标题、说明、当前项绿色勾、数字键帽。",
+      "html": "<button class=\"ds-choice\"><span class=\"ds-choice-text\"><span class=\"ds-choice-title\">手动</span><span class=\"ds-choice-detail\">每项修改都先由你审阅，确认后才写入草稿</span></span><span class=\"ds-check\">✓</span><kbd class=\"ds-key\">2</kbd></button>",
+      "css": ".ds-choice { font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; display: flex; align-items: baseline; gap: 8px; width: 340px; text-align: left; background: transparent; border: none; border-radius: 6px; padding: 8px; } .ds-choice:hover { background: rgba(0,0,0,.06); } .ds-choice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; } .ds-choice-title { font-size: 13px; color: rgba(0,0,0,.85); } .ds-choice-detail { font-size: 10px; color: rgba(0,0,0,.5); } .ds-check { color: #1F9E54; font-weight: 600; } .ds-key { font-size: 10px; font-weight: 500; color: rgba(0,0,0,.5); background: rgba(0,0,0,.06); border: 1px solid rgba(0,0,0,.1); border-radius: 4px; padding: 1px 4px; min-width: 16px; text-align: center; }"
+    },
+    {
+      "name": "Panel with Status",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "实色面板（无阴影）里的状态徽章：图标 + 文字 + 颜色。",
+      "html": "<div class=\"ds-panel\"><div class=\"ds-title\">Twitch → 日本出口</div><div class=\"ds-badge\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"#1F9E54\"/><path d=\"M7 12.5l3.2 3L17 9\" stroke=\"#fff\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/></svg>已通过 Mihomo 配置测试</div></div>",
+      "css": ".ds-panel { font-family: -apple-system, 'SF Pro Text', 'PingFang SC', sans-serif; background: #fff; border: 1px solid rgba(0,0,0,.06); border-radius: 16px; padding: 16px; width: 320px; } .ds-title { font-size: 13px; font-weight: 600; color: rgba(0,0,0,.85); margin-bottom: 8px; } .ds-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(0,0,0,.85); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Precision Console",
+    "overview": "Veer AI Editor 是一台精密仪表台：用户用一句中文描述分流，界面把它变成可审阅、可校验、可撤销的修改。仪表台的价值在于读数准确、一眼可读，而不是外观华丽。所以界面安静，几乎全是中性的 macOS 系统表面；颜色只在两种地方出现：语义状态（通过、警告、失败，永远配图标和文字），以及当前视图里唯一的下一步操作（Veer 绿色）。\n\n这是一个原生 macOS 应用，不是网页。字体、表面色、分隔线、焦点环、控件都用系统提供的，自动适配浅色和深色、提高对比度、减弱透明度和用户的字号设置。Liquid Glass 只用于浮在内容之上的操作层（输入框、发送按钮、提示条）；内容本身放在实色面板上。\n\n密度偏紧凑：这是长时间使用的工具，信息密度高于营销页面，但组内间距始终小于组间距，状态永远靠文字和图标表达，不只靠颜色。",
+    "keyCharacteristics": [
+      "一个强调色（Veer 绿），只用于主操作、选中勾、已写入状态和开启的开关。",
+      "深度靠表面层级和细分隔线，不靠阴影；唯一的阴影属于浮层补全列表。",
+      "选中和悬停都是“表面提升一级”，不是换成强调色。",
+      "快捷键显示为键帽，菜单项带数字键帽，提示行用键帽加动作名。",
+      "所有文字用系统文字样式，跟随系统字号；状态 = 图标 + 文字 + 颜色。",
+      "对齐 macOS Human Interface Guidelines：系统控件优先，自绘只在系统没有对应控件时。"
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "一个视图里实心绿只出现在一个主操作上。选择控件、分段控件、次要按钮保持系统原生的中性外观（`neutralControl()`）。",
+        "section": "colors"
+      },
+      {
+        "name": "The Never-Alone Rule",
+        "body": "颜色从不单独表达状态：`StatusBadge` 总是图标 + 文字；开关开启时同时有底色、边线和文字颜色变化，并标记为“已选中”。",
+        "section": "colors"
+      },
+      {
+        "name": "The System-Color Rule",
+        "body": "功能页面不写十六进制颜色。新颜色先进入 `Tokens.swift`，并同时给出浅色和深色值。",
+        "section": "colors"
+      },
+      {
+        "name": "The Text-Style Rule",
+        "body": "只用系统文字样式（`.title2`、`.callout`、`.caption` …），不写 `.system(size:)`，这样系统字号设置能生效。",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono-For-Data Rule",
+        "body": "等宽字体只给代码和数据（规则、域名、IP、YAML），不作为“技术感”装饰。",
+        "section": "typography"
+      },
+      {
+        "name": "The Grid Rule",
+        "body": "不出现网格外的间距值；需要新值时先加到 `Spacing`。",
+        "section": "layout"
+      },
+      {
+        "name": "The Ladder-Not-Shadow Rule",
+        "body": "要让一个元素“高一级”，就换到下一级表面色并加细分隔线，不加阴影。卡片、按钮和文字永远没有阴影。",
+        "section": "elevation"
+      },
+      {
+        "name": "The Selection-Is-Lift Rule",
+        "body": "悬停和选中都表现为表面提升一级：中性按钮悬停时底色从 6% 加深到 10%，按下到 14%；菜单行悬停时出现 6% 底色；分段控件选中段是石墨灰。强调色不是选中的默认表现，只有“开启”类开关和当前项的勾用绿色。",
+        "section": "elevation"
+      },
+      {
+        "name": "The Glass-For-Controls Rule",
+        "body": "Glass 只给浮在内容之上的控件，内容区（卡片、面板、修改项）永远是实色表面。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** 用系统颜色、系统文字样式和系统控件；自绘组件放进 `DesignSystem/`，功能页面只组合它们。",
+      "**Do** 每个视图只放一个实心绿色主操作（One Voice Rule）。",
+      "**Do** 用表面层级和 1px 分隔线表达深度；悬停和选中都是表面提升一级（Selection-Is-Lift Rule）。",
+      "**Do** 把快捷键显示为 `KeyCap`，菜单选项带数字键帽并支持数字键选择。",
+      "**Do** 状态同时用图标、文字和颜色表达；仅图标的按钮必须有悬停提示和读屏标签。",
+      "**Do** 每次改界面都检查浅色、深色、窄窗口和长名称（中文和英文），并更新 `artifacts/` 截图。",
+      "**Do** 说明、提示和键帽文字用二级灰，保证 4.5:1 对比度。"
+    ],
+    "donts": [
+      "**Don't** 给卡片、按钮或文字加阴影；唯一的阴影属于浮层补全列表。",
+      "**Don't** 在内容区使用 Glass，或把 Glass 当装饰。",
+      "**Don't** 使用渐变（包括键帽），也不使用发光、多层阴影或彩色粗边。",
+      "**Don't** 引入第二个品牌强调色，或把绿色用于导航和分段控件的选中状态。",
+      "**Don't** 在功能页面写十六进制颜色、网格外的间距或 `.system(size:)` 字号。",
+      "**Don't** 用三级灰写需要阅读的文字（说明、警告、提示）。",
+      "**Don't** 用 emoji 或 Unicode 符号代替图标；图标来自 SF Symbols，同一层级使用同一种填充风格。"
+    ]
+  }
+}

@@ -3,6 +3,7 @@
 用一句话修改 Mihomo 分流规则，每一处改动先审阅，再决定是否写入草稿，最后导出完整配置副本。
 
 - 规格：[`docs/VEER_AI_EDITOR_SPEC_2026-10-17.md`](docs/VEER_AI_EDITOR_SPEC_2026-10-17.md)，AI 系统提示：[`docs/VEER_AI_EDITOR_SYSTEM_PROMPT_2026-10-17.md`](docs/VEER_AI_EDITOR_SYSTEM_PROMPT_2026-10-17.md)
+- 设计系统：[`DESIGN.md`](DESIGN.md)（令牌、组件与规则；改界面前先读），机器可读的补充在 `.impeccable/design.json`
 - UI 蓝图：Open Design 项目 `veer-ai-editor-rebuild-20261017`，副本在 [`prototype/`](prototype/)
 - 一个进程、纯 Swift。没有 Node 运行时，不监听任何端口；唯一的外部可执行文件是内置的 Mihomo 校验器（`mihomo -t`）。
 - 2026-10-19 起从 Veer Android 仓库（原 `native/macos-editor/`）独立出来，提交历史随之保留。

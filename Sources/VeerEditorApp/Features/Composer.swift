@@ -107,8 +107,12 @@ struct ComposerView: View {
                         .opacity(completionHeight > 0 ? 1 : 0)
                 }
             }
-            Text("↩ 发送 · ⇧↩ 换行 · @ 选择出口 · / 命令")
-                .font(.caption2).foregroundStyle(.secondary)
+            HStack(spacing: Spacing.md) {
+                ShortcutHint(keys: "↩", label: "发送")
+                ShortcutHint(keys: "⇧↩", label: "换行")
+                ShortcutHint(keys: "@", label: "选择出口")
+                ShortcutHint(keys: "/", label: "命令")
+            }
         }
         .onChange(of: query?.text) { highlighted = 0 }
     }
