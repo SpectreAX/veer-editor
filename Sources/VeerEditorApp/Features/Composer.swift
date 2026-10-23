@@ -20,6 +20,7 @@ struct ComposerView: View {
     @State private var replaceRequest: CompletionItem?
     /// An input method is composing (pinyin shown as marked text) but nothing is committed yet.
     @State private var composing = false
+    @State private var completionHeight: CGFloat = 0
 
     private var completions: [CompletionItem] {
         guard let query else { return [] }
@@ -101,8 +102,12 @@ struct ComposerView: View {
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.large + Spacing.xs, style: .continuous))
             .overlay(alignment: .topLeading) {
                 if !completions.isEmpty {
+                    // Lifted by its own measured height so it floats above the composer; an
+                    // alignment guide alone left it drawn downward over the controls.
                     CompletionList(items: completions, highlighted: min(highlighted, completions.count - 1), pick: pick)
-                        .alignmentGuide(.top) { $0[.bottom] + Spacing.sm }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { completionHeight = $0 }
+                        .offset(y: -completionHeight - Spacing.sm)
+                        .opacity(completionHeight > 0 ? 1 : 0)
                 }
             }
             Text("↩ 发送 · ⇧↩ 换行 · @ 选择出口 · / 命令")
