@@ -5,27 +5,13 @@ import VeerCore
 /// mode menu. 完整权限 is tinted, as Codex marks full access.
 struct ExecutionModePicker: View {
     @Environment(EditorStore.self) private var store
-    /// Icon only, for narrow composer rows.
-    var compact = false
 
     var body: some View {
         @Bindable var store = store
         let mode = store.executionMode
         let tint: Color? = mode == .full ? .statusWarning : nil
-        Button { store.showingExecutionModePicker.toggle() } label: {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: mode.symbol)
-                if !compact { Text(mode.title) }
-            }
-            .font(.callout)
-            .lineLimit(1)
-            .foregroundStyle(tint ?? .primary)
-            .padding(.horizontal, Spacing.sm + Spacing.xxs)
-            .padding(.vertical, Spacing.xs)
-            .background((tint ?? .primary).opacity(tint == nil ? 0.06 : 0.14), in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        Button { store.showingExecutionModePicker.toggle() } label: { Image(systemName: mode.symbol) }
+        .buttonStyle(PillButtonStyle(tint: tint))
         .fixedSize()
         .help("执行模式：\(mode.title)。\(mode.detail)")
         .accessibilityLabel("执行模式：\(mode.title)")
@@ -41,7 +27,7 @@ struct ExecutionModePicker: View {
                         store.showingExecutionModePicker = false
                     }
                 }
-                Text("写入的都是草稿：随时可以撤销，原始文件不会改变。").font(.caption).foregroundStyle(.tertiary)
+                Text("写入的都是草稿：随时可以撤销，原始文件不会改变。").font(.caption).foregroundStyle(.secondary)
                     .padding(.horizontal, Spacing.sm)
                     .padding(.top, Spacing.xs)
             }

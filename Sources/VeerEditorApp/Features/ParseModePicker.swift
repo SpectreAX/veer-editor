@@ -6,28 +6,20 @@ import VeerCore
 struct ParseModePicker: View {
     @Environment(EditorStore.self) private var store
     @Environment(\.openSettings) private var openSettings
-    /// Icon only, for narrow composer rows.
-    var compact = false
 
     var body: some View {
         @Bindable var store = store
         let ai = store.useAI
         Button { store.showingModePicker.toggle() } label: {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: ai ? "sparkles" : "text.magnifyingglass")
-                if !compact { Text(ai ? "AI 解析" : "本地解析") }
-                if ai && !store.aiConfigured {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.statusWarning).imageScale(.small)
+            Image(systemName: ai ? "sparkles" : "text.magnifyingglass")
+                .overlay(alignment: .topTrailing) {
+                    if ai && !store.aiConfigured {
+                        Circle().fill(Color.statusWarning).frame(width: Spacing.sm - Spacing.xxs, height: Spacing.sm - Spacing.xxs)
+                            .offset(x: Spacing.xs, y: -Spacing.xxs)
+                    }
                 }
-            }
-            .font(.callout)
-            .lineLimit(1)
-            .padding(.horizontal, Spacing.sm + Spacing.xxs)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.primary.opacity(0.06), in: Capsule())
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PillButtonStyle())
         .fixedSize()
         .help(ai ? (store.aiConfigured ? "AI 解析。点按切换解析方式" : "AI 解析：还没有 API Key，会改用本地解析") : "本地解析。点按切换解析方式")
         .accessibilityLabel("解析方式：\(ai ? "AI 解析" : "本地解析")")

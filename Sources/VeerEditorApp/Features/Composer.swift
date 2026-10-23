@@ -73,14 +73,11 @@ struct ComposerView: View {
                     .accessibilityLabel("分流指令")
                 }
                 HStack(spacing: Spacing.sm) {
-                    // Narrow windows drop the hint first, then shorten the pills.
+                    // Icons only; names and states are in each button's tooltip and menu. The hint goes
+                    // first when the row is narrow.
                     ViewThatFits(in: .horizontal) {
-                        options(model: .full, compactSearch: false, hint: true)
-                        options(model: .full, compactSearch: false, hint: false)
-                        options(model: .full, compactSearch: true, hint: false)
-                        options(model: .short, compactSearch: true, hint: false)
-                        options(model: .icon, compactSearch: true, hint: false, compactMode: true)
-                        options(model: .icon, compactSearch: true, hint: false, compactMode: true, compactExecution: true)
+                        options(hint: true)
+                        options(hint: false)
                     }
                     if store.isRunning {
                         Button { store.cancel() } label: { Image(systemName: "stop.fill") }
@@ -111,49 +108,37 @@ struct ComposerView: View {
                 }
             }
             Text("↩ 发送 · ⇧↩ 换行 · @ 选择出口 · / 命令")
-                .font(.caption2).foregroundStyle(.tertiary)
+                .font(.caption2).foregroundStyle(.secondary)
         }
         .onChange(of: query?.text) { highlighted = 0 }
     }
 
-    enum ModelLabel { case full, short, icon }
-
-    private func options(model: ModelLabel, compactSearch: Bool, hint: Bool, compactMode: Bool = false, compactExecution: Bool = false) -> some View {
+    private func options(hint: Bool) -> some View {
         @Bindable var store = store
         return HStack(spacing: Spacing.sm) {
-            ExecutionModePicker(compact: compactExecution)
-            ParseModePicker(compact: compactMode)
-            if store.useAI { modelMenu(model) }
-            ToggleChip(title: "联网搜索", symbol: "globe", isOn: $store.searchSettings.enabled, compact: compactSearch)
+            ExecutionModePicker()
+            ParseModePicker()
+            if store.useAI { modelMenu }
+            ToggleChip(title: "联网搜索", symbol: "globe", isOn: $store.searchSettings.enabled, compact: true)
                 .disabled(!store.effectiveUseAI)
                 .help(store.effectiveUseAI
                       ? (store.searchSettings.enabled ? "AI 可以联网搜索规则集和官方域名（点按关闭）" : "开启后 AI 可以联网搜索规则集和官方域名")
                       : "联网搜索只在 AI 解析时可用")
             Spacer(minLength: 0)
             if hint {
-                Text("请勿粘贴密钥或订阅链接").font(.caption).foregroundStyle(.tertiary).fixedSize()
+                Text("请勿粘贴密钥或订阅链接").font(.caption).foregroundStyle(.secondary).fixedSize()
             }
         }
     }
 
     /// The model and thinking strength; shown in AI mode only.
-    private func modelMenu(_ label: ModelLabel) -> some View {
+    private var modelMenu: some View {
         @Bindable var store = store
         let settings = store.settings
         return Button { store.showingModelPopover.toggle() } label: {
-            Label {
-                if label != .icon { Text(label == .full ? settings.modelLabel : settings.model) }
-            } icon: {
-                Image(systemName: settings.thinks ? "brain" : "cpu")
-            }
-            .font(.callout)
-            .lineLimit(1)
-            .padding(.horizontal, Spacing.sm + Spacing.xxs)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.primary.opacity(0.06), in: Capsule())
-            .contentShape(Capsule())
+            Image(systemName: settings.thinks ? "brain" : "cpu")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PillButtonStyle())
         .fixedSize()
         .help("\(settings.modelLabel)。选择模型与思考强度")
         .accessibilityLabel("模型：\(settings.modelLabel)")

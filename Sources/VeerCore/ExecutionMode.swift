@@ -28,9 +28,10 @@ public enum ExecutionMode: String, Sendable, Codable, CaseIterable, Identifiable
 
     public var symbol: String {
         switch self {
-        case .auto: "wand.and.stars"
+        // Not sparkles or a checkmark: those sit beside it as AI parsing and the change checkboxes.
+        case .auto: "a.circle"
         case .manual: "hand.raised"
-        case .acceptEdits: "checkmark.circle"
+        case .acceptEdits: "square.and.pencil"
         case .plan: "list.bullet.clipboard"
         case .full: "exclamationmark.shield"
         }

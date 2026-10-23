@@ -357,7 +357,8 @@ struct ChangeRow: View {
                 Image(systemName: "square.stack.3d.up.badge.a").foregroundStyle(Color.veerAccent)
                 Text("新建策略组").foregroundStyle(.secondary)
             }
-            Text(item.subject).fontWeight(.medium)
+            // The name keeps its width; the label and type tag give way first in narrow windows.
+            Text(item.subject).fontWeight(.medium).lineLimit(1).layoutPriority(1)
             if item.kind == .group {
                 Tag(text: ProfileAnalysis.groupTypeTitle(item.group?.type ?? "select"))
             } else if item.kind == .removeRule {

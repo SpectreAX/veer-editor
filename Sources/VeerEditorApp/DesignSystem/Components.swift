@@ -64,6 +64,35 @@ struct Chip: View {
     }
 }
 
+/// Icon pill for the composer's menu buttons: a neutral (or tinted) wash that deepens on hover and
+/// press, like `ToggleChip` beside it.
+struct PillButtonStyle: ButtonStyle {
+    var tint: Color?
+
+    func makeBody(configuration: Configuration) -> some View {
+        PillBody(configuration: configuration, tint: tint)
+    }
+
+    private struct PillBody: View {
+        let configuration: Configuration
+        let tint: Color?
+        @State private var hovering = false
+
+        var body: some View {
+            let base = tint == nil ? 0.06 : 0.14
+            configuration.label
+                .font(.callout)
+                .foregroundStyle(tint ?? .primary)
+                .padding(.horizontal, Spacing.sm + Spacing.xxs)
+                .padding(.vertical, Spacing.xs)
+                .background((tint ?? .primary).opacity(configuration.isPressed ? base + 0.08 : hovering ? base + 0.04 : base), in: Capsule())
+                .contentShape(Capsule())
+                .onHover { hovering = $0 }
+                .animation(Motion.quick, value: hovering)
+        }
+    }
+}
+
 /// On / off pill for a composer option. Off it matches the neutral mode pill beside it; on it takes
 /// an accent wash, edge and text, so the state reads from more than color alone (also announced as
 /// selected).
