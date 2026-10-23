@@ -1,7 +1,7 @@
 import SwiftUI
 import VeerCore
 
-/// Composer popover: parse mode, the service's models and the thinking-strength slider.
+/// Composer popover: the service's models and the thinking-strength slider.
 struct ModelPopover: View {
     @Environment(EditorStore.self) private var store
     let openSettings: () -> Void
@@ -10,10 +10,7 @@ struct ModelPopover: View {
         @Bindable var store = store
         let settings = store.settings
         VStack(alignment: .leading, spacing: Spacing.md) {
-            SegmentedControl(label: "解析方式", selection: $store.useAI,
-                             options: [.init(value: true, title: "AI"), .init(value: false, title: "本地解析")])
-            .fixedSize()
-            if store.useAI && !store.aiConfigured {
+            if !store.aiConfigured {
                 HStack {
                     StatusBadge(kind: .warning, text: "还没有 \(settings.provider.title) 的 API Key", compact: true)
                     Spacer()
@@ -58,7 +55,6 @@ struct ModelPopover: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .opacity(store.useAI ? 1 : 0.5)
 
             Divider()
             Button("AI 设置…", action: openSettings).buttonStyle(.link).foregroundStyle(Color.veerAccent)

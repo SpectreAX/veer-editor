@@ -74,10 +74,11 @@ struct ComposerView: View {
                 HStack(spacing: Spacing.sm) {
                     // Narrow windows drop the hint first, then shorten the pills.
                     ViewThatFits(in: .horizontal) {
-                        options(compactMode: false, compactSearch: false, hint: true)
-                        options(compactMode: false, compactSearch: false, hint: false)
-                        options(compactMode: false, compactSearch: true, hint: false)
-                        options(compactMode: true, compactSearch: true, hint: false)
+                        options(model: .full, compactSearch: false, hint: true)
+                        options(model: .full, compactSearch: false, hint: false)
+                        options(model: .full, compactSearch: true, hint: false)
+                        options(model: .short, compactSearch: true, hint: false)
+                        options(model: .icon, compactSearch: true, hint: false, compactMode: true)
                     }
                     if store.isRunning {
                         Button { store.cancel() } label: { Image(systemName: "stop.fill") }
@@ -109,10 +110,13 @@ struct ComposerView: View {
         .onChange(of: query?.text) { highlighted = 0 }
     }
 
-    private func options(compactMode: Bool, compactSearch: Bool, hint: Bool) -> some View {
+    enum ModelLabel { case full, short, icon }
+
+    private func options(model: ModelLabel, compactSearch: Bool, hint: Bool, compactMode: Bool = false) -> some View {
         @Bindable var store = store
         return HStack(spacing: Spacing.sm) {
-            modeMenu(compact: compactMode)
+            ParseModePicker(compact: compactMode)
+            if store.useAI { modelMenu(model) }
             ToggleChip(title: "联网搜索", symbol: "globe", isOn: $store.searchSettings.enabled, compact: compactSearch)
                 .disabled(!store.effectiveUseAI)
                 .help(store.effectiveUseAI
@@ -125,22 +129,27 @@ struct ComposerView: View {
         }
     }
 
-    private func modeMenu(compact: Bool) -> some View {
+    /// The model and thinking strength; shown in AI mode only.
+    private func modelMenu(_ label: ModelLabel) -> some View {
         @Bindable var store = store
-        let title = store.effectiveUseAI ? (compact ? "AI" : "AI · \(store.settings.modelLabel)")
-            : (store.useAI && !compact ? "本地解析 · 配置 AI" : "本地解析")
+        let settings = store.settings
         return Button { store.showingModelPopover.toggle() } label: {
-            Label(title, systemImage: store.effectiveUseAI ? (store.settings.thinks ? "brain" : "sparkles") : "text.magnifyingglass")
-                .font(.callout)
-                .lineLimit(1)
-                .padding(.horizontal, Spacing.sm + Spacing.xxs)
-                .padding(.vertical, Spacing.xs)
-                .background(Color.primary.opacity(0.06), in: Capsule())
-                .contentShape(Capsule())
+            Label {
+                if label != .icon { Text(label == .full ? settings.modelLabel : settings.model) }
+            } icon: {
+                Image(systemName: settings.thinks ? "brain" : "cpu")
+            }
+            .font(.callout)
+            .lineLimit(1)
+            .padding(.horizontal, Spacing.sm + Spacing.xxs)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .fixedSize()
-        .help(store.effectiveUseAI ? "AI · \(store.settings.modelLabel)。选择解析方式、模型与思考强度" : "选择解析方式、模型与思考强度")
+        .help("\(settings.modelLabel)。选择模型与思考强度")
+        .accessibilityLabel("模型：\(settings.modelLabel)")
         .popover(isPresented: $store.showingModelPopover, arrowEdge: .top) {
             ModelPopover {
                 store.showingModelPopover = false

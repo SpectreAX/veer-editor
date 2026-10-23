@@ -274,6 +274,19 @@ enum SnapshotRunner {
         }
         store.showingModelPopover = false
         await settle(0.4)
+        // Parse-mode menu, with AI set up and without a key.
+        for (key, name) in [("sk-snapshot", "28-mode-menu"), (nil, "28-mode-menu-no-key")] as [(String?, String)] {
+            store.sessionKey = key
+            NSApp.activate()
+            store.showingModePicker = true
+            await settle(1.8)
+            if let popover = NSApp.windows.first(where: { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }) {
+                capture(popover, to: directory.appendingPathComponent("\(name)-\(suffix).png"), composite: true)
+            }
+            store.showingModePicker = false
+            await settle(0.4)
+        }
+        store.sessionKey = "sk-snapshot"
         // The Settings scene cannot be opened from here; host the same view in a window of its own.
         let settings = NSWindow(contentViewController: NSHostingController(rootView: SettingsView().environment(store).tint(.veerAccent)))
         settings.title = "AI"
